@@ -15,6 +15,8 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 | [docs/API.md](docs/API.md) | Full HTTP API reference |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deploy + Salla App Store listing checklist |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Proposed future features, phased |
+| [docs/STRATEGY.md](docs/STRATEGY.md) | Competitive strategy vs. native AI-chat integrations |
+| [docs/saas/](docs/saas/README.md) | Complete blueprint for converting to a multi-tenant subscription SaaS |
 
 ---
 
