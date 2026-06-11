@@ -4,6 +4,8 @@ import { remember } from "./memory.js";
 import { postNote, boardAsText } from "./board.js";
 import { metricsHistory } from "../pipeline/metrics.js";
 import { playbooksFor, getPlaybook } from "./skills.js";
+import { isWriteAllowed } from "../salla/client.js";
+import { requestChange } from "../changes/changes.js";
 
 const MAX_CONSULT_DEPTH = 2;
 
@@ -244,5 +246,64 @@ export function buildTools(
     },
   };
 
-  return [sallaRead, consultAgent, councilBoard, readPlaybook, saveMemory, metrics, calculate];
+  const tools = [sallaRead, consultAgent, councilBoard, readPlaybook, saveMemory, metrics, calculate];
+
+  if (agent.writeMode !== "read_only") {
+    const confirmMode = agent.writeMode === "confirm";
+    const sallaWriteTool: ToolDef = {
+      name: "salla_write",
+      description: confirmMode
+        ? "PROPOSE a change to the store. The owner enabled edit-with-confirmation: your change is queued and applied only after the owner approves it on the dashboard. Allowed: POST/PUT on products, coupons, specialoffers, categories — never anything destructive. Always fetch the current object with salla_read first and change only the fields you intend to. Include a clear description of what changes and why."
+        : "Apply a change to the store DIRECTLY (the owner enabled edit-without-confirmation — be conservative). Allowed: POST/PUT on products, coupons, specialoffers, categories — never anything destructive. Always fetch the current object with salla_read first, change only the intended fields, and double-check the payload. When in doubt, recommend instead of writing.",
+      parameters: {
+        type: "object",
+        properties: {
+          method: { type: "string", enum: ["POST", "PUT"] },
+          endpoint: {
+            type: "string",
+            description: 'e.g. "products/12345" (PUT) or "coupons" (POST).',
+          },
+          payload: {
+            type: "object",
+            description: "The request body — only the fields being set/changed.",
+            additionalProperties: true,
+          },
+          description: {
+            type: "string",
+            description: "Human summary for the owner: what changes, on what, and why (1-2 sentences).",
+          },
+        },
+        required: ["method", "endpoint", "payload", "description"],
+      },
+      run: async (input) => {
+        const method = String(input.method ?? "").toUpperCase() as "POST" | "PUT";
+        const endpoint = String(input.endpoint ?? "");
+        const description = String(input.description ?? "").trim();
+        if (!["POST", "PUT"].includes(method)) return "method must be POST or PUT.";
+        if (!isWriteAllowed(method, endpoint)) {
+          return `${method} ${endpoint} is not on the write allowlist (products, coupons, specialoffers, categories; no deletes). Recommend it to the owner in your report instead.`;
+        }
+        if (description.length < 15) {
+          return "Provide a real description — the owner decides based on it.";
+        }
+        const payload = (input.payload ?? {}) as Record<string, unknown>;
+        if (Object.keys(payload).length === 0) return "Payload is empty.";
+        try {
+          return await requestChange(
+            agent.id,
+            agent.writeMode as "confirm" | "auto",
+            method,
+            endpoint,
+            payload,
+            description
+          );
+        } catch (err) {
+          return `Change request failed: ${(err as Error).message}`;
+        }
+      },
+    };
+    tools.push(sallaWriteTool);
+  }
+
+  return tools;
 }

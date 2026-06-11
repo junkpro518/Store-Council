@@ -6,9 +6,13 @@ import { JsonStore } from "../store/jsonStore.js";
  * variables act only as initial defaults; the saved settings file wins.
  */
 
+export type WriteMode = "read_only" | "confirm" | "auto";
+
 export interface AgentOverride {
   /** Disabled agents are skipped in daily analysis and cannot be chatted with. */
   enabled: boolean;
+  /** Per-agent write mode; "inherit" uses the global writeMode. */
+  writeMode?: WriteMode | "inherit";
   /** Owner-chosen display name (e.g. rename "Pricing Manager" to "أبو فهد"). */
   displayName?: string;
   /** Extra standing instructions appended to the agent's system prompt. */
@@ -33,6 +37,13 @@ export interface PlatformSettings {
   language: "ar" | "en" | "auto";
   /** Free-text store context the owner writes (niche, goals, constraints). */
   storeContext: string;
+  /**
+   * Global write mode for agents:
+   *  - read_only: agents can never modify the store (default)
+   *  - confirm:   agents propose changes; the owner approves each one
+   *  - auto:      approved-allowlist changes apply immediately (use with care)
+   */
+  writeMode: WriteMode;
   dailyEnabled: boolean;
   dailyCron: string;
   timezone: string;
@@ -59,6 +70,7 @@ const defaults: PlatformSettings = {
   },
   language: "auto",
   storeContext: "",
+  writeMode: "read_only",
   dailyEnabled: true,
   dailyCron: process.env.DAILY_CRON ?? "0 5 * * *",
   timezone: "Asia/Riyadh",
@@ -104,6 +116,7 @@ export function updateSettings(
   next.topActionsCount = clampInt(next.topActionsCount, 3, 10, 5);
   if (!["ar", "en", "auto"].includes(next.language)) next.language = "auto";
   if (!["anthropic", "openrouter"].includes(next.provider)) next.provider = "anthropic";
+  if (!["read_only", "confirm", "auto"].includes(next.writeMode)) next.writeMode = "read_only";
   store.write(next);
   return next;
 }

@@ -122,6 +122,19 @@ const STRINGS = {
   mcpToken: { ar: "مفتاح الربط (Bearer token)", en: "Integration token (Bearer)" },
   rotateToken: { ar: "توليد مفتاح جديد", en: "Rotate token" },
   rotateWarn: { ar: "توليد مفتاح جديد يفصل أي ربط حالي.", en: "Rotating disconnects existing connectors." },
+  writeMode: { ar: "صلاحيات التعديل على المتجر", en: "Store edit permissions" },
+  writeModeHint: { ar: "حدد ما إذا كان المدراء يقترحون فقط، أو يعدّلون بعد موافقتك، أو يعدّلون مباشرة. التعديلات محصورة بالمنتجات والكوبونات والعروض والتصنيفات — لا حذف أبداً.", en: "Choose whether managers only advise, edit after your approval, or edit directly. Edits are limited to products, coupons, offers, and categories — never deletions." },
+  wmReadOnly: { ar: "قراءة فقط (الافتراضي الآمن)", en: "Read only (safe default)" },
+  wmConfirm: { ar: "تعديل بعد موافقتي", en: "Edit after my confirmation" },
+  wmAuto: { ar: "تعديل مباشر بدون موافقة ⚠️", en: "Edit without confirmation ⚠️" },
+  wmInherit: { ar: "حسب الإعداد العام", en: "Use global setting" },
+  agentWriteMode: { ar: "صلاحية التعديل لهذا المدير", en: "This manager's edit permission" },
+  pendingChanges: { ar: "تعديلات بانتظار موافقتك", en: "Changes awaiting your approval" },
+  changeJournal: { ar: "سجل التعديلات", en: "Change journal" },
+  approve: { ar: "موافقة وتنفيذ", en: "Approve & apply" },
+  reject: { ar: "رفض", en: "Reject" },
+  rejectReason: { ar: "سبب الرفض (يتعلم منه المدير)", en: "Reason (the manager learns from it)" },
+  noPending: { ar: "لا توجد تعديلات معلّقة.", en: "No pending changes." },
 };
 
 function t(key) {
@@ -406,6 +419,10 @@ async function dashboardView() {
         </button>
       </div>
       ${report ? `<h2>${t("latestReport")}</h2>${reportHtml(report)}` : `<div class="card"><p class="sub">${t("noReports")}</p></div>`}
+      <div class="card" id="changesCard" hidden>
+        <h2 style="margin-top:0">✋ ${t("pendingChanges")}</h2>
+        <div id="changeList"></div>
+      </div>
       <div class="card">
         <h2 style="margin-top:0">🏆 ${t("achievements")}</h2>
         <p class="sub">${t("achievementsHint")}</p>
@@ -425,6 +442,44 @@ async function dashboardView() {
           : `<p class="sub">${t("noEvents")}</p>`}
       </div>`;
     if (report) wireActionButtons(body, report, render);
+    const changesCard = body.querySelector("#changesCard");
+    const loadChanges = async () => {
+      const pending = await api("/changes?status=pending").catch(() => []);
+      if (!changesCard) return;
+      changesCard.hidden = pending.length === 0;
+      if (pending.length === 0) return;
+      changesCard.querySelector("#changeList").innerHTML = pending.map((c) => {
+        const mgr = state.agents.find((x) => x.id === c.agentId);
+        return `
+        <div class="action-item" data-cid="${esc(c.id)}">
+          <div class="head">
+            <span class="badge">${esc(c.method)} ${esc(c.endpoint)}</span>
+            <h3 style="font-weight:400;font-size:0.95rem">${esc(c.description)}</h3>
+            ${mgr ? `<span class="badge">${esc(mgr.name)}</span>` : ""}
+          </div>
+          <details class="dept"><summary>JSON</summary><pre style="font-size:0.78rem;overflow-x:auto">${esc(JSON.stringify(c.payload, null, 2))}</pre></details>
+          <div class="controls">
+            <button class="small" data-act="approve">${t("approve")}</button>
+            <button class="small ghost danger" data-act="reject">${t("reject")}</button>
+          </div>
+        </div>`;
+      }).join("");
+      changesCard.querySelectorAll("[data-act]").forEach((btn) => {
+        btn.onclick = async () => {
+          const cid = btn.closest("[data-cid]").dataset.cid;
+          btn.disabled = true;
+          if (btn.dataset.act === "approve") {
+            await api(`/changes/${cid}/approve`, { method: "POST" });
+          } else {
+            const reason = prompt(t("rejectReason")) ?? "";
+            await api(`/changes/${cid}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
+          }
+          loadChanges();
+        };
+      });
+    };
+    loadChanges();
+
     const achList = body.querySelector("#achList");
     if (achList) {
       api("/achievements").then((items) => {
@@ -592,6 +647,14 @@ async function managersView() {
       <input type="text" class="dn" value="${esc(a.name === a.defaultName ? "" : a.name)}" placeholder="${esc(a.defaultName)}" />
       <label>${t("customInstructions")} <span class="hint">— ${t("customInstructionsHint")}</span></label>
       <textarea class="ci">${esc(a.customInstructions)}</textarea>
+      ${a.isOrchestrator ? "" : `
+      <label>${t("agentWriteMode")}</label>
+      <select class="wm">
+        <option value="inherit" ${a.writeModeOverride === "inherit" ? "selected" : ""}>${t("wmInherit")}</option>
+        <option value="read_only" ${a.writeModeOverride === "read_only" ? "selected" : ""}>${t("wmReadOnly")}</option>
+        <option value="confirm" ${a.writeModeOverride === "confirm" ? "selected" : ""}>${t("wmConfirm")}</option>
+        <option value="auto" ${a.writeModeOverride === "auto" ? "selected" : ""}>${t("wmAuto")}</option>
+      </select>`}
       <label>${t("focusAreas")}</label>
       <textarea class="fo" placeholder="${esc(a.defaultFocus.join("\n"))}">${esc(
         JSON.stringify(a.focus) === JSON.stringify(a.defaultFocus) ? "" : a.focus.join("\n")
@@ -630,12 +693,14 @@ async function managersView() {
     });
     const saveConfig = async (extra = {}) => {
       const focusText = card.querySelector(".fo").value.trim();
+      const wmSel = card.querySelector(".wm");
       await api(`/agents/${id}/config`, {
         method: "PUT",
         body: JSON.stringify({
           displayName: card.querySelector(".dn").value.trim(),
           customInstructions: card.querySelector(".ci").value,
           focus: focusText ? focusText.split("\n").map((s) => s.trim()).filter(Boolean) : [],
+          ...(wmSel ? { writeMode: wmSel.value } : {}),
           ...extra,
         }),
       });
@@ -695,6 +760,12 @@ async function settingsView() {
     </select>
     <label>${t("storeContext")} <span class="hint">— ${t("storeContextHint")}</span></label>
     <textarea id="storeContext">${esc(s.storeContext)}</textarea>
+    <label>${t("writeMode")} <span class="hint">— ${t("writeModeHint")}</span></label>
+    <select id="writeMode">
+      <option value="read_only" ${s.writeMode === "read_only" ? "selected" : ""}>${t("wmReadOnly")}</option>
+      <option value="confirm" ${s.writeMode === "confirm" ? "selected" : ""}>${t("wmConfirm")}</option>
+      <option value="auto" ${s.writeMode === "auto" ? "selected" : ""}>${t("wmAuto")}</option>
+    </select>
   </div>
 
   <div class="card">
@@ -811,6 +882,7 @@ async function settingsView() {
           },
           language: body.querySelector("#language").value,
           storeContext: body.querySelector("#storeContext").value,
+          writeMode: body.querySelector("#writeMode").value,
           dailyEnabled: body.querySelector("#dailyEnabled").checked,
           dailyCron: body.querySelector("#cron").value.trim(),
           timezone: body.querySelector("#timezone").value.trim(),

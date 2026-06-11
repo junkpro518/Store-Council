@@ -32,14 +32,13 @@ Prioritized proposals for evolving Store Council. Phases are ordered by value-to
 | **Mobile PWA** | Installable app + push notifications for the daily report and alerts. | Manifest + service worker on the existing SPA. |
 | **Platform adapters** | Abstract the Salla client behind a provider interface and add Zid (and later Shopify) adapters — same council, other platforms. | The agent layer is already platform-agnostic except endpoint names. |
 
-## Phase 4 — Beyond advice (requires explicit opt-in & write scopes)
-
-The read-only contract is a core trust feature, so any write capability must be a separate, clearly-consented mode:
+## Phase 4 — Beyond advice
 
 | Feature | Description | Notes |
 |---|---|---|
-| **One-click apply (draft mode)** | For supported actions (e.g. fixing a product description, creating a coupon), the manager prepares the exact change and the owner approves it in the dashboard; only then is it written via the Salla API. | Requires write scopes, a change journal, and undo. Keep default deployments read-only. |
-| **Campaign composer** | The Marketing Manager drafts complete campaigns (audience, coupon, creative copy in Arabic) ready to paste — later, to apply via draft mode. | Pure-text version is Phase 1-easy; apply version belongs here. |
+| **Write modes** | ✅ **Shipped.** Three owner-controlled levels (read-only / edit-after-confirmation / edit-without-confirmation), per manager or global, with a conservative POST/PUT allowlist (no deletes), approval queue, audited change journal, and rejection-feedback learning. | Salla app needs write scopes only for stores that opt in. |
+| **Campaign composer** | The Marketing Manager drafts complete campaigns (audience, coupon, creative copy in Arabic) ready to paste — or to apply via the confirm write mode. | Pure-text version is Phase 1-easy. |
+| **Storefront customer agent (live mode)** | A customer-facing chat widget on the store (Arabic-first FAQ: availability, price, shipping, returns) powered by the council's store knowledge, with escalation to the owner after failed clarifications. Inspired by the MoradBot scope (FAQ-only MVP, escalation workflow, plan-based product-sync cadence) — but ours starts ahead: the Customer Service Manager already holds store knowledge, memory, and playbooks. | **Build after the SaaS conversion**: shopper-facing volume needs per-message metering/billing and strict guardrails (the bot speaks to customers on behalf of the brand — hallucination is reputational damage, so FAQ-scoped grounding + escalation-by-default, never open-ended). Sell as a plan add-on; it also feeds the council real customer questions as analysis signal. |
 
 ## Technical debt / hardening backlog
 

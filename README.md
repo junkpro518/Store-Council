@@ -4,7 +4,7 @@
 
 Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal. Agents run on **Anthropic** (default) or **OpenRouter** — the owner picks the provider and model in Settings.
 
-> The platform never modifies the store. It observes, analyzes, recommends, and explains — the merchant always executes the changes.
+> **By default the platform never modifies the store** — it observes, analyzes, recommends, and explains. The owner can optionally grant edit permissions per manager or globally, in three levels: **read only** (default), **edit after my confirmation** (changes queue on the dashboard for approval), or **edit without confirmation**. Even then, writes are restricted to a conservative allowlist (products, coupons, offers, categories — never deletions), every change is journaled, and rejections teach the proposing manager not to repeat them.
 
 ## Documentation
 

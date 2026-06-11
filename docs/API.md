@@ -77,6 +77,18 @@ Settings shape:
 
 Action item shape: `{title, manager, what, why, how, impact, priority, status}`.
 
+## Change requests (write modes)
+
+When the owner sets store edit permissions to `confirm` or `auto` (globally in Settings or per manager), agents gain a `salla_write` tool restricted to a conservative allowlist (POST/PUT on products, coupons, specialoffers, categories — no deletes, ever).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/changes?status=pending\|applied\|rejected\|failed` 🔒 | Change journal (all agent write attempts, audited) |
+| POST | `/changes/:id/approve` 🔒 | Execute a pending change against the store; the agent learns from the approval |
+| POST | `/changes/:id/reject` 🔒 | `{reason}` — reject; the reason is written into the agent's memory so it isn't re-proposed |
+
+`PUT /settings` accepts `writeMode: "read_only"|"confirm"|"auto"`; `PUT /agents/:id/config` accepts `writeMode: "inherit"|…` per manager. The General Manager is always read-only.
+
 ## Achievements & impact
 
 | Method | Path | Description |

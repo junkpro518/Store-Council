@@ -254,11 +254,13 @@ export function getAgent(id: string): AgentDef | undefined {
 
 // ---------- Owner overrides (configured from the dashboard) ----------
 
-import { agentOverride } from "../settings/settings.js";
+import { agentOverride, getSettings, WriteMode } from "../settings/settings.js";
 
 export interface EffectiveAgent extends AgentDef {
   enabled: boolean;
   customInstructions: string;
+  /** Resolved write mode: per-agent override, else the global setting. */
+  writeMode: WriteMode;
 }
 
 /** An agent with the owner's runtime customizations applied. */
@@ -266,6 +268,9 @@ export function effectiveAgent(id: string): EffectiveAgent | undefined {
   const base = getAgent(id);
   if (!base) return undefined;
   const o = agentOverride(id);
+  const global = getSettings().writeMode;
+  const resolved: WriteMode =
+    o.writeMode && o.writeMode !== "inherit" ? o.writeMode : global;
   return {
     ...base,
     name: o.displayName?.trim() || base.name,
@@ -273,6 +278,8 @@ export function effectiveAgent(id: string): EffectiveAgent | undefined {
     // The orchestrator can never be disabled — it writes the daily report.
     enabled: id === "gm" ? true : o.enabled !== false,
     customInstructions: o.customInstructions?.trim() ?? "",
+    // The GM consolidates and prioritizes; it never writes to the store.
+    writeMode: id === "gm" ? "read_only" : resolved,
   };
 }
 

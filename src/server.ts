@@ -38,6 +38,7 @@ import { llm, testOpenRouter } from "./llm/client.js";
 import { memories, forget } from "./agents/memory.js";
 import { curatorStatus, runCurator } from "./pipeline/curator.js";
 import { achievements } from "./pipeline/daily.js";
+import { listChanges, approveChange, rejectChange, ChangeStatus } from "./changes/changes.js";
 import { buildCouncilMcpServer } from "./mcp/council.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { aiConfigured } from "./settings/settings.js";
@@ -303,6 +304,8 @@ app.get("/agents", requireAuth, (_req, res) => {
       endpoints: a.endpoints,
       enabled: a.enabled,
       customInstructions: a.customInstructions,
+      writeMode: a.writeMode,
+      writeModeOverride: getSettings().agents[a.id]?.writeMode ?? "inherit",
       isOrchestrator: a.id === "gm",
     }))
   );
@@ -314,7 +317,14 @@ app.put("/agents/:id/config", requireAuth, (req, res) => {
     res.status(404).json({ error: `No agent "${req.params.id}"` });
     return;
   }
-  const { enabled, displayName, customInstructions, focus } = req.body ?? {};
+  const { enabled, displayName, customInstructions, focus, writeMode } = req.body ?? {};
+  if (
+    writeMode !== undefined &&
+    !["inherit", "read_only", "confirm", "auto"].includes(String(writeMode))
+  ) {
+    res.status(400).json({ error: "writeMode must be inherit | read_only | confirm | auto" });
+    return;
+  }
   setAgentOverride(agent.id, {
     ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),
     ...(displayName !== undefined ? { displayName: String(displayName) } : {}),
@@ -323,6 +333,9 @@ app.put("/agents/:id/config", requireAuth, (req, res) => {
       : {}),
     ...(focus !== undefined
       ? { focus: Array.isArray(focus) ? focus.map(String).filter(Boolean) : [] }
+      : {}),
+    ...(writeMode !== undefined
+      ? { writeMode: writeMode as "inherit" | "read_only" | "confirm" | "auto" }
       : {}),
   });
   res.json({ ok: true, agent: effectiveAgent(agent.id) });
@@ -345,6 +358,35 @@ app.delete("/agents/:id/memory/:memoryId", requireAuth, (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+// ---------- Change requests (write-mode approval queue + journal) ----------
+
+app.get("/changes", requireAuth, (req, res) => {
+  const status = req.query.status as ChangeStatus | undefined;
+  if (status && !["pending", "applied", "rejected", "failed"].includes(status)) {
+    res.status(400).json({ error: "Invalid status filter" });
+    return;
+  }
+  res.json(listChanges(status));
+});
+
+app.post("/changes/:id/approve", requireAuth, async (req, res) => {
+  const result = await approveChange(req.params.id);
+  if (!result) {
+    res.status(404).json({ error: "No pending change with that id" });
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/changes/:id/reject", requireAuth, (req, res) => {
+  const result = rejectChange(req.params.id, String(req.body?.reason ?? ""));
+  if (!result) {
+    res.status(404).json({ error: "No pending change with that id" });
+    return;
+  }
+  res.json(result);
 });
 
 // ---------- Achievement ledger ----------

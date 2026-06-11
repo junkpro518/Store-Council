@@ -124,8 +124,15 @@ ${agent.customInstructions}`);
   const playbooks = playbookPromptBlock(agent.id);
   if (playbooks) sections.push(playbooks);
 
+  const writeRule =
+    agent.writeMode === "read_only"
+      ? "- You have READ-ONLY access to the store via the salla_read tool. You can never modify the store, and you must never claim to have changed anything."
+      : agent.writeMode === "confirm"
+        ? `- You can READ the store (salla_read) and PROPOSE changes (salla_write). Proposed changes are queued for the owner's approval — never claim a change is live until it is approved and applied. Propose a change only when you are confident; otherwise recommend it in writing instead.`
+        : `- You can READ the store (salla_read) and APPLY changes directly (salla_write) — the owner trusts you with edit-without-confirmation. Use this power conservatively: fetch current data first, change only intended fields, one change at a time, never bulk operations. When uncertain, recommend instead of writing. Every change is journaled and visible to the owner.`;
+
   sections.push(`## Your tools and hard limits
-- You have READ-ONLY access to the store via the salla_read tool. You can never modify the store, and you must never claim to have changed anything.
+${writeRule}
 - metrics_history gives you the store's real KPI time series — check the trend before diving into raw data.
 - You work as a TEAM: read and post to the council_board during analysis sessions, and consult any fellow manager with consult_agent when a question crosses into their department. Available managers:
 ${roster}

@@ -88,6 +88,68 @@ export async function sallaGet(
   return res.json();
 }
 
+/**
+ * Write allowlist — used ONLY when the owner has switched write mode away
+ * from read_only. Deliberately conservative:
+ *  - no DELETE, ever (nothing destructive)
+ *  - only content/commerce endpoints (no settings, payments, shipping config)
+ * Extend consciously; every entry widens what an agent may touch.
+ */
+const WRITE_ALLOWLIST: { method: "POST" | "PUT"; pattern: string }[] = [
+  { method: "PUT", pattern: "products/{id}" }, // edit product details/price/desc
+  { method: "POST", pattern: "products" }, // create product (draft workflows)
+  { method: "POST", pattern: "coupons" },
+  { method: "PUT", pattern: "coupons/{id}" },
+  { method: "POST", pattern: "specialoffers" },
+  { method: "PUT", pattern: "specialoffers/{id}" },
+  { method: "POST", pattern: "categories" },
+  { method: "PUT", pattern: "categories/{id}" },
+];
+
+export function isWriteAllowed(method: string, path: string): boolean {
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  return WRITE_ALLOWLIST.some((e) => {
+    if (e.method !== method.toUpperCase()) return false;
+    const re = new RegExp("^" + e.pattern.replace(/\{id\}/g, "[A-Za-z0-9_-]+") + "$");
+    return re.test(clean);
+  });
+}
+
+/**
+ * Execute a write against the Salla store. Callers must have already passed
+ * the change through the owner's write-mode policy (confirm queue or auto) —
+ * this function only enforces the method/endpoint allowlist.
+ */
+export async function sallaWrite(
+  method: "POST" | "PUT",
+  path: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; body: unknown }> {
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!isWriteAllowed(method, clean)) {
+    throw new Error(
+      `Write ${method} ${clean} is not in the write allowlist. Refusing.`
+    );
+  }
+  const token = await getAccessToken();
+  const res = await fetch(`${config.salla.apiBase}/${clean}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(
+      `Salla API ${res.status} on ${method} ${clean}: ${JSON.stringify(body).slice(0, 400)}`
+    );
+  }
+  return { status: res.status, body };
+}
+
 /** Fetch every page of a list endpoint (bounded, for daily snapshots). */
 export async function sallaGetAll(
   path: string,
