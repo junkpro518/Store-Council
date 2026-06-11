@@ -1,8 +1,12 @@
 import { enabledSpecialists } from "../agents/definitions.js";
 import { runAgent } from "../agents/runner.js";
-import { llm, modelId, openRouterChat } from "../llm/client.js";
+import { structuredJson } from "../llm/client.js";
 import { getSettings } from "../settings/settings.js";
 import { JsonStore } from "../store/jsonStore.js";
+import { remember } from "../agents/memory.js";
+import { resetBoard, boardAsText } from "../agents/board.js";
+import { captureSnapshot } from "./metrics.js";
+import { curationDue, runCurator } from "./curator.js";
 
 export type ActionStatus = "new" | "done" | "dismissed";
 
@@ -28,10 +32,12 @@ export interface DailyReport {
 
 const reportStore = new JsonStore<DailyReport[]>("daily-reports", []);
 
-const DAILY_BRIEF = `Run your daily analysis of the store.
-- Pull the data you need for your standing focus areas (recent orders, the relevant lists, etc.). Compare against the last 30 days where possible.
+const DAILY_BRIEF = `Run your daily analysis of the store as part of today's council session.
+- Start from your memory and the metrics_history trend, then pull the data you need for your standing focus areas. Compare against the last 30 days where possible.
+- POST your single most important finding to the council_board as soon as you have it (1-2 sentences with the key number), and READ the board before finalizing — a colleague's discovery may explain or outrank yours.
 - Produce your TOP 3 findings for today, each as a full recommendation (What / Why with numbers / How — exact Salla dashboard steps / Expected impact).
 - If a finding crosses into a colleague's domain, consult them before finalizing it.
+- If you learned something durable today (a pattern, a mistake in your past reasoning, an owner constraint), save_memory it.
 - If nothing in your domain needs attention today, say so explicitly and note the one metric you'll watch.`;
 
 async function mapLimited<T, R>(
@@ -80,47 +86,17 @@ const ACTIONS_SCHEMA = {
 const EXTRACT_PROMPT = (summary: string) =>
   `Extract every action item from this daily store report into the JSON schema. Keep the original language of the report. "manager" must be the department id mentioned (one of: catalog, pricing, marketing, seo, cro, customer-service, retention, orders, shipping, inventory, finance, reviews, payments, growth, gm). "how" must contain the full step-by-step dashboard instructions. priority 1 = most important.\n\n---\n${summary}`;
 
-function parseActions(text: string): ActionItem[] {
-  // Tolerate markdown fences some providers wrap JSON in.
-  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-  const parsed = JSON.parse(cleaned) as { actions: Omit<ActionItem, "status">[] };
-  return parsed.actions
-    .sort((a, b) => a.priority - b.priority)
-    .map((a) => ({ ...a, status: "new" as const }));
-}
-
 /** Extract structured, trackable actions from the GM's report. */
 async function extractActions(summary: string): Promise<ActionItem[]> {
-  if (getSettings().provider === "openrouter") {
-    const data = await openRouterChat({
-      max_tokens: 8000,
-      messages: [{ role: "user", content: EXTRACT_PROMPT(summary) }],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "actions", strict: true, schema: ACTIONS_SCHEMA },
-      },
-    });
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return [];
-    try {
-      return parseActions(content);
-    } catch {
-      return [];
-    }
-  }
-
-  const response = await llm().messages.create({
-    model: modelId(),
-    max_tokens: 8000,
-    output_config: {
-      format: { type: "json_schema", schema: ACTIONS_SCHEMA },
-    },
-    messages: [{ role: "user", content: EXTRACT_PROMPT(summary) }],
-  });
-  const text = response.content.find((b) => b.type === "text");
-  if (!text || text.type !== "text") return [];
   try {
-    return parseActions(text.text);
+    const parsed = await structuredJson<{ actions: Omit<ActionItem, "status">[] }>(
+      EXTRACT_PROMPT(summary),
+      ACTIONS_SCHEMA as unknown as Record<string, unknown>,
+      "actions"
+    );
+    return parsed.actions
+      .sort((a, b) => a.priority - b.priority)
+      .map((a) => ({ ...a, status: "new" as const }));
   } catch {
     return [];
   }
@@ -131,6 +107,14 @@ export async function runDailyAnalysis(): Promise<DailyReport> {
   const startedAt = new Date().toISOString();
   const date = startedAt.slice(0, 10);
   const specialists = enabledSpecialists();
+
+  // Team session setup: fresh shared board + today's KPI snapshot.
+  resetBoard(date);
+  try {
+    await captureSnapshot(date);
+  } catch (err) {
+    console.error("Metrics snapshot failed:", err);
+  }
 
   const findings = await mapLimited(
     specialists,
@@ -152,6 +136,9 @@ export async function runDailyAnalysis(): Promise<DailyReport> {
 2. **Top ${settings.topActionsCount} actions for today**, ranked by expected impact vs. effort. For each, keep the owning manager's What/Why/How/Impact but tighten it. Resolve any conflicts between departments and say how you resolved them.
 3. **Watchlist** — items not urgent today but trending toward a problem.
 4. Credit each item to its manager id in the form "— manager: pricing" so the owner knows whom to chat with for details.
+
+## Council board (headline findings the team shared during the session)
+${boardAsText()}
 
 ${findings.map(([id, text]) => `\n## Findings from ${id}\n${text}`).join("\n")}`;
 
@@ -176,6 +163,12 @@ ${findings.map(([id, text]) => `\n## Findings from ${id}\n${text}`).join("\n")}`
     ...reports.filter((r) => r.date !== date),
     report,
   ]);
+
+  // Hermes-style maintenance: curate agent memories in the background when due.
+  if (curationDue()) {
+    runCurator().catch((err) => console.error("[curator] run failed:", err));
+  }
+
   return report;
 }
 
@@ -195,13 +188,33 @@ export function setActionStatus(
   status: ActionStatus
 ): DailyReport | undefined {
   let updated: DailyReport | undefined;
+  let action: ActionItem | undefined;
   reportStore.update((reports) =>
     reports.map((r) => {
       if (r.date !== date || !r.actions[index]) return r;
+      action = r.actions[index];
       const actions = r.actions.map((a, i) => (i === index ? { ...a, status } : a));
       updated = { ...r, actions };
       return updated;
     })
   );
+
+  // Learning loop: the owning manager remembers how the owner responded, so
+  // rejected advice isn't repeated and accepted advice is reinforced.
+  if (action && action.status !== status && (status === "done" || status === "dismissed")) {
+    const verb =
+      status === "done"
+        ? "The owner IMPLEMENTED my recommendation"
+        : "The owner DISMISSED my recommendation";
+    remember(
+      action.manager,
+      "feedback",
+      `${verb} (${date}): "${action.title}". ${
+        status === "dismissed"
+          ? "Don't re-propose it as-is; if still important, find a different angle or ask the owner why in chat."
+          : "This direction resonates — follow up on its measured impact in ~2 weeks."
+      }`
+    );
+  }
   return updated;
 }

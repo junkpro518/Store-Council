@@ -33,15 +33,43 @@ Owner customizations (rename, custom instructions, focus replacement, enable/dis
 
 ### Tools (`src/agents/tools.ts`)
 
-Tools use a **provider-neutral format**: JSON-Schema parameters + an async `run` implementation. Every agent gets three:
+Tools use a **provider-neutral format**: JSON-Schema parameters + an async `run` implementation. Every agent gets seven:
 
 | Tool | Purpose | Guardrails |
 |---|---|---|
 | `salla_read` | Read store data | Department endpoint scope → global GET-only allowlist → OAuth read scopes |
-| `consult_agent` | Ask a colleague (inter-agent communication) | Self-consult blocked; disabled colleagues refused; depth limit 2 prevents loops |
+| `consult_agent` | Ask a colleague (pairwise inter-agent communication) | Self-consult blocked; disabled colleagues refused; depth limit 2 prevents loops |
+| `council_board` | Read/post the team's shared blackboard during a session | Posts capped (length + count); agents read colleagues' notes, not their own |
+| `read_playbook` | Load a domain playbook in full (progressive disclosure) | Department-scoped access |
+| `save_memory` | Persist a lesson/fact/feedback to long-term memory | Typed, length-capped, per-agent cap 60 |
+| `metrics_history` | The store's daily KPI time series | Read-only, capped at 365 days |
 | `calculate` | Exact arithmetic for metrics | Expression whitelist (digits and `+-*/%().` only) |
 
 Large API payloads are clipped to ~24k characters before entering model context, with a hint to narrow the query.
+
+### Learning system (memory + curator)
+
+Adopted from Hermes Agent's closed learning loop:
+
+- **Memory** (`src/agents/memory.ts`) — per-agent long-term memory with three sources: agent-saved **lessons/facts** (`save_memory`), and automatic **feedback** written whenever the owner marks an action *done* or *dismissed* — so managers stop repeating rejected advice and reinforce what worked. The newest ~20 items are injected into every system prompt (prefetch); the owner can inspect and delete any memory from the Managers page.
+- **Curator** (`src/pipeline/curator.ts`) — a background maintenance pass (auto-triggered after a daily run when >7 days since the last one; also `POST /curator/run`). It has the LLM rewrite each agent's memory: merging duplicates, dropping superseded/expired items, tightening wording — never inventing. Degenerate results (everything dropped) are rejected as a safety valve.
+
+### Team operation
+
+- **Council board** (`src/agents/board.ts`) — a shared blackboard reset at the start of each daily session. Specialists post headline findings as they discover them and read colleagues' notes before finalizing (a sales drop and a courier-delay finding meet on the board). The GM consolidates from the board plus the full findings.
+- **Pairwise consultation** (`consult_agent`) remains for targeted questions.
+
+### Knowledge system (playbooks)
+
+`skills/*.md` are domain playbooks in the SKILL.md format (YAML frontmatter: `name`, `description`, `agents`). Following progressive disclosure, agents see only the name+description index in their prompt and load full bodies on demand via `read_playbook`. Shipped playbooks: shared methodology and Salla-data guide (all agents) plus pricing, Arabic SEO, CRO/checkout, retention/RFM, the KSA commerce calendar, and inventory health. Add a playbook by dropping a new `.md` file in `skills/`.
+
+### Metrics time series
+
+`src/pipeline/metrics.ts` captures a daily KPI snapshot (orders/customers/products/abandoned-carts totals — one cheap pagination-metadata call each) at the start of every analysis. Agents query it via `metrics_history` to detect real trends instead of re-deriving history from raw API pages.
+
+### Agent personas
+
+Each agent's prompt now also carries **critical rules** — red lines it never crosses (e.g. Pricing never recommends a discount without margin math; Reviews never suggests fake reviews) — a personality-driven specialization pattern that sharpens domain behavior.
 
 ### Runner (`src/agents/runner.ts`)
 

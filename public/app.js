@@ -109,6 +109,9 @@ const STRINGS = {
   openRouterModel: { ar: "معرّف النموذج في OpenRouter", en: "OpenRouter model id" },
   openRouterModelHint: { ar: "أي نموذج يدعم استدعاء الأدوات من openrouter.ai/models — مثال: anthropic/claude-sonnet-4.5", en: "Any tool-calling model from openrouter.ai/models — e.g. anthropic/claude-sonnet-4.5" },
   needsAiKey: { ar: "أضف مفتاح مزوّد الذكاء الاصطناعي من الإعدادات لتشغيل المدراء.", en: "Add your AI provider's API key in Settings to power the managers." },
+  memoryTitle: { ar: "ذاكرة المدير (الدروس والملاحظات المتراكمة)", en: "Manager's memory (accumulated lessons & feedback)" },
+  noMemories: { ar: "لا توجد ذكريات بعد — تتراكم تلقائياً من التحليلات وتفاعلك مع التوصيات.", en: "No memories yet — they accumulate automatically from analyses and your responses to recommendations." },
+  forget: { ar: "حذف", en: "Forget" },
 };
 
 function t(key) {
@@ -556,10 +559,34 @@ async function managersView() {
         <button class="small fit saveBtn">${t("save")}</button>
         <div class="fit msg"></div>
       </div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600;font-size:0.86rem">${t("memoryTitle")}</summary>
+        <div class="memList sub" style="font-size:0.84rem">…</div>
+      </details>
     </div>`).join("");
 
   body.querySelectorAll(".agent-card").forEach((card) => {
     const id = card.dataset.id;
+    const memList = card.querySelector(".memList");
+    const loadMemory = async () => {
+      const items = await api(`/agents/${id}/memory`);
+      memList.innerHTML = items.length
+        ? items.map((m) => `
+            <div style="display:flex;gap:8px;align-items:baseline;border-top:1px solid var(--line);padding:5px 0">
+              <span class="badge">${esc(m.type)}</span>
+              <span style="flex:1">${esc(m.content)}</span>
+              <button class="small ghost danger" data-mid="${esc(m.id)}">${t("forget")}</button>
+            </div>`).join("")
+        : `<p>${t("noMemories")}</p>`;
+      memList.querySelectorAll("button[data-mid]").forEach((b) => {
+        b.onclick = async () => {
+          await api(`/agents/${id}/memory/${b.dataset.mid}`, { method: "DELETE" });
+          loadMemory();
+        };
+      });
+    };
+    card.querySelector("details").addEventListener("toggle", (e) => {
+      if (e.target.open) loadMemory();
+    });
     const saveConfig = async (extra = {}) => {
       const focusText = card.querySelector(".fo").value.trim();
       await api(`/agents/${id}/config`, {

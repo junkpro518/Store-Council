@@ -1,5 +1,9 @@
 import { EffectiveAgent, effectiveAgent } from "./definitions.js";
 import { sallaGet, sallaGetAll } from "../salla/client.js";
+import { remember } from "./memory.js";
+import { postNote, boardAsText } from "./board.js";
+import { metricsHistory } from "../pipeline/metrics.js";
+import { playbooksFor, getPlaybook } from "./skills.js";
 
 const MAX_CONSULT_DEPTH = 2;
 
@@ -148,5 +152,97 @@ export function buildTools(
     },
   };
 
-  return [sallaRead, consultAgent, calculate];
+  const saveMemory: ToolDef = {
+    name: "save_memory",
+    description:
+      "Save something to your long-term memory so future analyses and chats start from it. Use type 'lesson' when you discover you were wrong or a recommendation didn't land (state what you'll do differently), 'fact' for durable store facts (owner constraints, supplier lead times, seasonal patterns), 'feedback' for the owner's expressed preferences. Keep each memory one dense sentence. Do NOT save raw data that's one API call away.",
+    parameters: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["lesson", "fact", "feedback"] },
+        content: { type: "string", description: "One dense, self-contained sentence." },
+      },
+      required: ["type", "content"],
+    },
+    run: async (input) => {
+      const type = String(input.type ?? "fact");
+      if (!["lesson", "fact", "feedback"].includes(type)) {
+        return "type must be lesson | fact | feedback";
+      }
+      const content = String(input.content ?? "").trim();
+      if (content.length < 10) return "Memory too short to be useful — write a full sentence.";
+      remember(agent.id, type as "lesson" | "fact" | "feedback", content);
+      return "Saved to your long-term memory.";
+    },
+  };
+
+  const councilBoard: ToolDef = {
+    name: "council_board",
+    description:
+      "The council's shared board for today's analysis. action='read' shows what your colleagues have found so far (do this BEFORE finalizing your findings — their discoveries often explain yours, e.g. a sales drop the Logistics Manager traced to courier delays). action='post' shares a headline finding of yours: one or two sentences with the key number, so colleagues and the General Manager can build on it.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["read", "post"] },
+        content: {
+          type: "string",
+          description: "Required for 'post': the finding, 1-2 sentences with the key number.",
+        },
+      },
+      required: ["action"],
+    },
+    run: async (input) => {
+      if (input.action === "post") {
+        const content = String(input.content ?? "").trim();
+        if (content.length < 10) return "Post a substantive finding (1-2 sentences with a number).";
+        postNote(agent.id, content);
+        return "Posted to the council board.";
+      }
+      return boardAsText(agent.id);
+    },
+  };
+
+  const metrics: ToolDef = {
+    name: "metrics_history",
+    description:
+      "The store's daily KPI time series captured by the platform (orders, customers, products, abandoned carts — cumulative totals per day). Use it to detect trends and compare today against real history instead of re-counting via many API calls. Day-over-day deltas = new orders/customers that day.",
+    parameters: {
+      type: "object",
+      properties: {
+        days: { type: "integer", description: "How many days back (default 30, max 365)." },
+      },
+    },
+    run: async (input) => {
+      const days = Math.min(Math.max(Number(input.days) || 30, 1), 365);
+      const series = metricsHistory(days);
+      if (series.length === 0) {
+        return "No metrics history yet — it accumulates one snapshot per daily analysis. Use salla_read for current numbers.";
+      }
+      return JSON.stringify(series);
+    },
+  };
+
+  const readPlaybook: ToolDef = {
+    name: "read_playbook",
+    description: `Load one of your expert playbooks in full. Available to you: ${playbooksFor(agent.id).map((p) => p.name).join(", ") || "(none)"}. Read the relevant playbook before analyzing its topic — it contains field-tested methods and benchmarks for this market.`,
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Playbook name, e.g. 'methodology'." },
+      },
+      required: ["name"],
+    },
+    run: async (input) => {
+      const book = getPlaybook(String(input.name ?? ""));
+      if (!book) {
+        return `No playbook named "${input.name}". Yours: ${playbooksFor(agent.id).map((p) => p.name).join(", ")}`;
+      }
+      if (!book.agents.includes("all") && !book.agents.includes(agent.id)) {
+        return `"${book.name}" belongs to other departments (${book.agents.join(", ")}) — consult that manager instead.`;
+      }
+      return book.body;
+    },
+  };
+
+  return [sallaRead, consultAgent, councilBoard, readPlaybook, saveMemory, metrics, calculate];
 }

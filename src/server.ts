@@ -35,6 +35,8 @@ import { verifySignature, handleWebhook, recentEvents } from "./salla/webhooks.j
 import { getStoreInfo } from "./salla/storeInfo.js";
 import { connectionInfo } from "./salla/auth.js";
 import { llm, testOpenRouter } from "./llm/client.js";
+import { memories, forget } from "./agents/memory.js";
+import { curatorStatus, runCurator } from "./pipeline/curator.js";
 import { aiConfigured } from "./settings/settings.js";
 import { sallaGet } from "./salla/client.js";
 
@@ -321,6 +323,37 @@ app.put("/agents/:id/config", requireAuth, (req, res) => {
       : {}),
   });
   res.json({ ok: true, agent: effectiveAgent(agent.id) });
+});
+
+// ---------- Agent memory (the learning system, owner-manageable) ----------
+
+app.get("/agents/:id/memory", requireAuth, (req, res) => {
+  if (!getAgent(req.params.id)) {
+    res.status(404).json({ error: `No agent "${req.params.id}"` });
+    return;
+  }
+  res.json(memories(req.params.id));
+});
+
+app.delete("/agents/:id/memory/:memoryId", requireAuth, (req, res) => {
+  const removed = forget(req.params.id, req.params.memoryId);
+  if (!removed) {
+    res.status(404).json({ error: "Memory not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.get("/curator/status", requireAuth, (_req, res) => {
+  res.json(curatorStatus());
+});
+
+app.post("/curator/run", requireAuth, async (_req, res) => {
+  try {
+    res.json({ ok: true, summary: await runCurator() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // ---------- Chat ----------
