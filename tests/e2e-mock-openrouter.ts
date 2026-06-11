@@ -12,6 +12,8 @@ import http from "node:http";
 process.env.OPENROUTER_BASE_URL = "http://127.0.0.1:4999/api/v1";
 process.env.DATA_DIR = "./data-e2e";
 
+const { initStorage, flushStorage } = await import("../src/store/jsonStore.js");
+await initStorage(); // honors STORAGE=postgres; no-op for json
 const { updateSettings } = await import("../src/settings/settings.js");
 const { testOpenRouter, structuredJson } = await import("../src/llm/client.js");
 const { runAgent } = await import("../src/agents/runner.js");
@@ -92,6 +94,7 @@ await runAgent("pricing", "question", 0, [], { forceReadOnly: true });
 check("forceReadOnly loop completes", chatCalls > before);
 
 mock.close();
+await flushStorage();
 const { rmSync } = await import("node:fs");
 rmSync("./data-e2e", { recursive: true, force: true });
 console.log(failures === 0 ? "\nE2E (mock) all green ✅" : `\n${failures} failed ❌`);

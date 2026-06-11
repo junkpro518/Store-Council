@@ -9,6 +9,7 @@
  * the deployable process: config validation, heartbeat, graceful shutdown.
  */
 import { platformConfig } from "./platform/config.js";
+import { initStorage, flushStorage } from "./store/jsonStore.js";
 
 console.log(
   `[worker] starting — storage=${platformConfig.storage}, concurrency=${platformConfig.worker.globalConcurrency}, tick=${platformConfig.worker.tickMs}ms`
@@ -17,6 +18,7 @@ if (platformConfig.storage === "postgres" && !platformConfig.databaseUrl) {
   console.error("[worker] STORAGE=postgres but DATABASE_URL is not set — exiting.");
   process.exit(1);
 }
+await initStorage();
 
 const tick = setInterval(() => {
   // P3: enqueue due daily_analysis jobs per tenant, then claim & run jobs.
@@ -27,6 +29,6 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     console.log(`[worker] ${signal} received — shutting down`);
     clearInterval(tick);
-    process.exit(0);
+    void flushStorage().finally(() => process.exit(0));
   });
 }

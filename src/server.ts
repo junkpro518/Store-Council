@@ -47,6 +47,7 @@ import { buildCouncilMcpServer } from "./mcp/council.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { aiConfigured } from "./settings/settings.js";
 import { sallaGet } from "./salla/client.js";
+import { initStorage, flushStorage } from "./store/jsonStore.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -838,6 +839,7 @@ function applySchedule(): void {
   );
 }
 
+await initStorage(); // postgres mode: preload + coherence listener (json: no-op)
 applySchedule();
 
 // Malformed JSON bodies and other route errors return JSON, never an HTML page.
@@ -856,7 +858,12 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     console.log(`[server] ${signal} received — shutting down`);
     task?.stop();
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
+    server.close(() => {
+      // Land any queued Postgres writes before exiting (json: no-op).
+      void flushStorage().finally(() => process.exit(0));
+    });
+    setTimeout(() => {
+      void flushStorage().finally(() => process.exit(0));
+    }, 5000).unref();
   });
 }

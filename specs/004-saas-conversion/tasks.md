@@ -9,11 +9,11 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 - [x] T004 `src/worker.ts` entry (logs + heartbeat only) wired into build/start scripts
 
 ## P1 — Storage swap (app keeps working single-tenant)
-- [ ] T005 `src/store/tenantStore.ts` implementing read/write/update(storeId) against Postgres (kv_state first), transactional `update` (SELECT … FOR UPDATE); `STORAGE=json|postgres` switch
-- [ ] T006 Switch all 14 JsonStore call sites to TenantStore with `DEFAULT_STORE_ID` (seeded `stores` row)
-- [ ] T007 Promote reports/actions, agent_memories, chat_messages, metrics, webhook_events, jobs to structured tables per the mapping in docs/saas/03
-- [ ] T008 `scripts/import-json-data.ts` (DATA_DIR → tenant rows) + round-trip test → **SC-5**
-- [ ] T009 Run the full existing verification suite against Postgres → **SC-2**
+- [x] T005 Postgres backend behind the existing store interface (`STORAGE=json|postgres`): write-through cache (sync reads), per-key ordered async persistence, cross-process coherence via LISTEN/NOTIFY, flush-on-shutdown. *Amendment:* implemented inside `jsonStore.ts` with `storeId` params (default tenant) instead of a separate class — zero call-site churn; cross-process transactional `update` deferred to P3 where a second writer (the worker) first exists (documented in the module header)
+- [x] T006 All store call sites run on the selected backend via `DEFAULT_STORE_ID` defaults (seeded `stores` row); per-tenant `storeId` parameter ready for P2 threading
+- [~] T007 *Re-scoped:* structured-table promotion moves into the phase that first queries each table server-side (jobs→P3 T014, usage_ledger/subscriptions→P4, reports/memories→P5 fleet queries). P1 keeps full-fidelity JSONB kv parity — promoting now would be speculative mapping code with no consumer
+- [x] T008 `scripts/import-json-data.ts` + round-trip parity test (`tests/pg-parity.ts`) → **SC-5** ✅
+- [x] T009 Suites green on Postgres: storage parity (incl. 50-write ordering + LISTEN/NOTIFY coherence), agent E2E identical on both backends, real-server restart persistence with zero JSON files → **SC-2** ✅
 
 ## P2 — Tenant threading
 - [ ] T010 Tenant context type + resolution middleware (`req.tenant`); thread `storeId` through runner/tools/prompts/pipeline/MCP/salla client (signature changes per docs/saas/06 step 2)
