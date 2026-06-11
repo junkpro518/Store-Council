@@ -10,18 +10,22 @@
     "start": "node dist/server.js",
     "daily-run": "tsx src/pipeline/runDaily.ts",
     "typecheck": "tsc --noEmit",
-    "verify:openrouter": "tsx scripts/verify-openrouter.ts"
+    "verify:openrouter": "tsx scripts/verify-openrouter.ts",
+    "worker": "node dist/worker.js",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^4.21.2",
     "node-cron": "^3.0.3",
+    "pg": "^8.21.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

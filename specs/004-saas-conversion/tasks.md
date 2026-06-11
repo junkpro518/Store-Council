@@ -4,9 +4,9 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 
 ## P0 — Foundations
 - [x] T001 Author migration `db/migrations/001_initial.sql` — full schema per docs/saas/03 (tenancy, settings, agent state, reports/actions, metrics, events, billing, usage, jobs, kv)
-- [ ] T002 Add `pg` + minimal migration runner (`scripts/migrate.ts`); `docker-compose.yml` with dev Postgres
-- [ ] T003 `src/platform/config.ts`: DB URL, platform OpenRouter key, Salla app credentials, encryption key — from env/secrets (leaves tenant settings in P4)
-- [ ] T004 `src/worker.ts` entry (logs + heartbeat only) wired into build/start scripts
+- [x] T002 Add `pg` + minimal migration runner (`scripts/migrate.ts`); `docker-compose.yml` with dev Postgres
+- [x] T003 `src/platform/config.ts`: DB URL, platform OpenRouter key, Salla app credentials, encryption key — from env/secrets (leaves tenant settings in P4)
+- [x] T004 `src/worker.ts` entry (logs + heartbeat only) wired into build/start scripts
 
 ## P1 — Storage swap (app keeps working single-tenant)
 - [ ] T005 `src/store/tenantStore.ts` implementing read/write/update(storeId) against Postgres (kv_state first), transactional `update` (SELECT … FOR UPDATE); `STORAGE=json|postgres` switch

@@ -59,3 +59,7 @@ Honest list of what no sandbox can prove, and where it gets proven:
 | Salla's real OAuth/webhook deliveries & iframe rendering | Needs a real Partners app + demo store | The pre-listing dress rehearsal (docs/DEPLOYMENT.md) |
 | **Quality** of agent analyses on real catalogs | Subjective; needs real data + human judgment | Pilot stores (docs/saas/08-rollout.md exit criteria) |
 | Long-horizon behaviors (curator after 7 days, impact after 14 days) | Time-based; logic unit-tested, wall-clock untested | First two weeks of pilot operation |
+
+## SaaS conversion — Phase P0 (2026-06-11)
+
+T001–T004 complete. Migration `db/migrations/001_initial.sql` was applied to a **real Postgres 16 cluster** (initdb'd for the test): clean apply (18 tables + schema_migrations), idempotent re-run, FK chain insert with Arabic content round-trip, and the `one_daily_per_store_per_day` partial unique index actively rejecting a duplicate daily job. Generating the migration from docs/saas/03 caught and fixed a design bug (non-IMMUTABLE `run_at::date` index expression → explicit `run_date` column). Worker entry verified in both modes: json heartbeat + graceful SIGTERM; `STORAGE=postgres` without `DATABASE_URL` refuses to start (exit 1). Runner: `npm run migrate`; dev DB: `docker compose up -d postgres`.
