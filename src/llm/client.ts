@@ -6,7 +6,8 @@ import { openRouterKey, getSettings } from "../settings/settings.js";
  * access to any tool-calling model on openrouter.ai/models.
  */
 
-export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+export const OPENROUTER_BASE =
+  process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
 
 export interface OpenRouterMessage {
   role: "system" | "user" | "assistant" | "tool";

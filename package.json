@@ -1,7 +1,7 @@
 {
   "name": "store-council",
   "version": "0.1.0",
-  "description": "Store Council — a multi-agent AI platform that connects read-only to a Salla store, analyzes it daily, and lets the merchant chat with 15 specialist AI department managers. Runs entirely on OpenRouter.",
+  "description": "Store Council \u2014 a multi-agent AI platform that connects read-only to a Salla store, analyzes it daily, and lets the merchant chat with 15 specialist AI department managers. Runs entirely on OpenRouter.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
     "daily-run": "tsx src/pipeline/runDaily.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:openrouter": "tsx scripts/verify-openrouter.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
