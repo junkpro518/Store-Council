@@ -1,10 +1,9 @@
-# 03 — Database Schema (PostgreSQL)
+-- 001_initial.sql — Store Council SaaS schema (T001, specs/004-saas-conversion)
+-- Source of truth: docs/saas/03-database.md. Apply with scripts/migrate.ts (T002)
+-- or: psql "$DATABASE_URL" -f db/migrations/001_initial.sql
 
-Every current `JsonStore` maps to a table (or a `kv_state` row). All tenant tables carry `store_id uuid not null references stores(id)` and an index on it. Timestamps are `timestamptz`.
+begin;
 
-## Core tenancy
-
-```sql
 create table stores (
   id                 uuid primary key default gen_random_uuid(),
   platform           text not null default 'salla',          -- future: 'zid'
@@ -43,11 +42,7 @@ create table integration_tokens (                             -- MCP / API acces
   store_id   uuid not null references stores(id) on delete cascade,
   created_at timestamptz not null default now()
 );
-```
 
-## Salla connection & per-tenant config
-
-```sql
 create table salla_tokens (
   store_id      uuid primary key references stores(id) on delete cascade,
   access_token  text not null,                                -- encrypted (05)
@@ -63,11 +58,7 @@ create table store_settings (
   settings    jsonb not null default '{}'::jsonb,             -- language, storeContext, schedule prefs,
   version     int  not null default 1                         --   topActionsCount, agents overrides…
 );
-```
 
-## Agent state (the learning system)
-
-```sql
 create table agent_memories (
   id         uuid primary key default gen_random_uuid(),
   store_id   uuid not null references stores(id) on delete cascade,
@@ -87,11 +78,7 @@ create table chat_messages (
   created_at timestamptz not null default now()
 );
 create index on chat_messages (store_id, agent_id, id desc);
-```
 
-## Reports, actions, achievements
-
-```sql
 create table reports (
   store_id    uuid not null references stores(id) on delete cascade,
   date        date not null,
@@ -118,11 +105,7 @@ create table actions (
   foreign key (store_id, report_date) references reports(store_id, date) on delete cascade
 );
 create index on actions (store_id, status, status_changed_at);  -- impact-loop due query
-```
 
-## Metrics, events, board
-
-```sql
 create table metrics_snapshots (
   store_id        uuid not null references stores(id) on delete cascade,
   date            date not null,
@@ -148,11 +131,7 @@ create table board_notes (
   at       timestamptz not null default now()
 );
 create index on board_notes (store_id, date);
-```
 
-## Billing & usage (04, 07)
-
-```sql
 create table subscriptions (
   store_id     uuid primary key references stores(id) on delete cascade,
   plan         text not null,                                  -- basic|pro|growth|byok
@@ -172,11 +151,7 @@ create table usage_ledger (
   output_tokens bigint not null default 0
 );
 create index on usage_ledger (store_id, date);
-```
 
-## Jobs (02)
-
-```sql
 create table jobs (
   id         bigint generated always as identity primary key,
   store_id   uuid not null references stores(id) on delete cascade,
@@ -192,11 +167,7 @@ create table jobs (
 create index on jobs (state, run_at);
 create unique index one_daily_per_store_per_day
   on jobs (store_id, type, run_date) where type = 'daily_analysis' and state in ('queued','running');
-```
 
-## Catch-all for low-churn blobs
-
-```sql
 create table kv_state (                                        -- store-info cache, curator state, misc
   store_id uuid not null references stores(id) on delete cascade,
   kind     text not null,
@@ -204,29 +175,5 @@ create table kv_state (                                        -- store-info cac
   version  int not null default 1,
   primary key (store_id, kind)
 );
-```
 
-## Mapping table: today's JsonStore → target
-
-| JsonStore name | Target |
-|---|---|
-| `settings` | `store_settings` (minus AI keys/app creds → platform config) |
-| `auth` | `accounts` + `sessions` + `integration_tokens` |
-| `salla-tokens` | `salla_tokens` |
-| `store-info` | `kv_state(kind='store_info')` |
-| `webhook-events` | `webhook_events` |
-| `daily-reports` | `reports` + `actions` |
-| `chat-history` | `chat_messages` |
-| `agent-memory` | `agent_memories` |
-| `council-board` | `board_notes` (or `kv_state`) |
-| `metrics-history` | `metrics_snapshots` |
-| `curator-state` | `kv_state(kind='curator')` |
-
-## Row-level security (optional hardening, recommended on Supabase)
-
-Enable RLS on all tenant tables with `using (store_id = current_setting('app.current_store')::uuid)`; web/worker set `app.current_store` per request/job. The application-level `TenantStore` contract is the primary guard; RLS catches bugs.
-
-## Retention & deletion
-
-- `uninstalled` tenants: full data retained 90 days (re-install restores everything — a selling point), then a purge job hard-deletes by `store_id` cascade.
-- Owner-initiated deletion (GDPR-style/PDPL): immediate cascade delete endpoint in the admin module + confirmation flow.
+commit;

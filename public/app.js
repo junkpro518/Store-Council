@@ -302,6 +302,7 @@ function shell(activeView, contentHtml) {
       <div class="foot">
         <button class="ghost small" id="langBtn">${state.lang === "ar" ? "English" : "العربية"}</button>
         <button class="ghost small" id="logoutBtn">${t("logout")}</button>
+        <a href="/privacy.html" target="_blank" style="display:block;text-align:center;margin-top:8px;color:#8aa19a;font-size:0.75rem">${state.lang === "ar" ? "سياسة الخصوصية" : "Privacy policy"}</a>
       </div>
     </nav>
     <main class="main" id="main">${contentHtml}</main>
