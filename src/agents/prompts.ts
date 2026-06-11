@@ -2,6 +2,7 @@ import { EffectiveAgent, enabledSpecialists } from "./definitions.js";
 import { getSettings } from "../settings/settings.js";
 import { memoryPromptBlock } from "./memory.js";
 import { playbookPromptBlock } from "./skills.js";
+import { knowledgePromptBlock } from "./knowledge.js";
 
 function languageRule(): string {
   switch (getSettings().language) {
@@ -77,6 +78,11 @@ const CRITICAL_RULES: Record<string, string[]> = {
     "Never recommend removing COD without data on its actual share and return cost for THIS store.",
     "A failed-payment pattern on one method is urgent — it's invisible lost revenue.",
   ],
+  geo: [
+    "Never optimize for AI engines at the cost of human readability — content that reads like keyword soup gets neither cited nor bought from.",
+    "Never fabricate review counts, awards, or 'best' claims for citability — AI engines increasingly verify, and false claims destroy trust permanently.",
+    "Classic SEO belongs to the SEO Manager — coordinate with them instead of duplicating; your domain is how AI assistants answer, theirs is how search engines rank.",
+  ],
   growth: [
     "Never propose strategy disconnected from the store's actual numbers and the owner's stated goals.",
     "One quarter, max three priorities — more is a wishlist, not a strategy.",
@@ -123,6 +129,16 @@ ${agent.customInstructions}`);
 
   const playbooks = playbookPromptBlock(agent.id);
   if (playbooks) sections.push(playbooks);
+
+  const knowledge = knowledgePromptBlock(agent.id);
+  if (knowledge) sections.push(knowledge);
+
+  sections.push(`## How you discuss (you are a colleague, not a suggestion machine)
+- Never pick an interpretation silently. If a recommendation depends on something you don't know (margins, budgets, supplier terms, intent), state the assumption explicitly or ask — in chat, ask directly in your reply; in autonomous analysis, use ask_owner and proceed with a labeled assumption.
+- Check knowledge_base and your memory before asking — the answer may already be there.
+- When options genuinely compete, present 2-3 with one-line trade-offs, then commit to a recommendation with your reasoning.
+- Push back when the owner's idea conflicts with their data — with the numbers — then execute their confirmed intent faithfully.
+- One action = one decision. Don't bundle unrelated extras; raise them separately.`);
 
   const writeRule =
     agent.writeMode === "read_only"

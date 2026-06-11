@@ -135,6 +135,18 @@ const STRINGS = {
   reject: { ar: "رفض", en: "Reject" },
   rejectReason: { ar: "سبب الرفض (يتعلم منه المدير)", en: "Reason (the manager learns from it)" },
   noPending: { ar: "لا توجد تعديلات معلّقة.", en: "No pending changes." },
+  managerQuestions: { ar: "أسئلة من مدرائك", en: "Questions from your managers" },
+  managerQuestionsHint: { ar: "أجوبتك تُحفظ في ذاكرة المدير وتحسّن توصياته القادمة.", en: "Your answers are saved to the manager's memory and improve future advice." },
+  answerBtn: { ar: "إرسال الجواب", en: "Send answer" },
+  answerPlaceholder: { ar: "اكتب جوابك…", en: "Write your answer…" },
+  dismissQ: { ar: "تجاهل", en: "Dismiss" },
+  knowledgeTitle: { ar: "قاعدة المعرفة (مستندات تزوّد بها هذا المدير)", en: "Knowledge base (documents you provide to this manager)" },
+  knowledgeHint: { ar: "أسعار الموردين، سياساتك، إرشادات العلامة… معلومات خارج سلة يعتمد عليها المدير.", en: "Supplier prices, your policies, brand guidelines… information outside Salla the manager relies on." },
+  addDoc: { ar: "إضافة مستند", en: "Add document" },
+  docTitle: { ar: "عنوان المستند", en: "Document title" },
+  docContent: { ar: "المحتوى", en: "Content" },
+  deleteDoc: { ar: "حذف", en: "Delete" },
+  noDocs: { ar: "لا مستندات بعد.", en: "No documents yet." },
 };
 
 function t(key) {
@@ -419,6 +431,11 @@ async function dashboardView() {
         </button>
       </div>
       ${report ? `<h2>${t("latestReport")}</h2>${reportHtml(report)}` : `<div class="card"><p class="sub">${t("noReports")}</p></div>`}
+      <div class="card" id="questionsCard" hidden>
+        <h2 style="margin-top:0">💬 ${t("managerQuestions")}</h2>
+        <p class="sub">${t("managerQuestionsHint")}</p>
+        <div id="questionList"></div>
+      </div>
       <div class="card" id="changesCard" hidden>
         <h2 style="margin-top:0">✋ ${t("pendingChanges")}</h2>
         <div id="changeList"></div>
@@ -442,6 +459,45 @@ async function dashboardView() {
           : `<p class="sub">${t("noEvents")}</p>`}
       </div>`;
     if (report) wireActionButtons(body, report, render);
+    const questionsCard = body.querySelector("#questionsCard");
+    const loadQuestions = async () => {
+      const pending = await api("/questions?status=pending").catch(() => []);
+      if (!questionsCard) return;
+      questionsCard.hidden = pending.length === 0;
+      if (pending.length === 0) return;
+      questionsCard.querySelector("#questionList").innerHTML = pending.map((q) => {
+        const mgr = state.agents.find((x) => x.id === q.agentId);
+        return `
+        <div class="action-item" data-qid="${esc(q.id)}">
+          <div class="head">
+            ${mgr ? `<span class="badge">${esc(mgr.name)}</span>` : ""}
+            <h3 style="font-weight:600;font-size:0.95rem">${esc(q.question)}</h3>
+          </div>
+          ${q.context ? `<div class="body sub">${esc(q.context)}</div>` : ""}
+          <div class="row" style="margin-top:8px">
+            <input type="text" class="qAnswer" placeholder="${t("answerPlaceholder")}" />
+            <button class="small fit" data-act="answer">${t("answerBtn")}</button>
+            <button class="small ghost danger fit" data-act="dismiss">${t("dismissQ")}</button>
+          </div>
+        </div>`;
+      }).join("");
+      questionsCard.querySelectorAll("[data-act]").forEach((btn) => {
+        btn.onclick = async () => {
+          const item = btn.closest("[data-qid]");
+          const qid = item.dataset.qid;
+          if (btn.dataset.act === "answer") {
+            const answer = item.querySelector(".qAnswer").value.trim();
+            if (!answer) return;
+            await api(`/questions/${qid}/answer`, { method: "POST", body: JSON.stringify({ answer }) });
+          } else {
+            await api(`/questions/${qid}/dismiss`, { method: "POST" });
+          }
+          loadQuestions();
+        };
+      });
+    };
+    loadQuestions();
+
     const changesCard = body.querySelector("#changesCard");
     const loadChanges = async () => {
       const pending = await api("/changes?status=pending").catch(() => []);
@@ -666,6 +722,13 @@ async function managersView() {
       <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600;font-size:0.86rem">${t("memoryTitle")}</summary>
         <div class="memList sub" style="font-size:0.84rem">…</div>
       </details>
+      <details class="kbDetails" style="margin-top:6px"><summary style="cursor:pointer;font-weight:600;font-size:0.86rem">${t("knowledgeTitle")}</summary>
+        <p class="sub" style="font-size:0.8rem">${t("knowledgeHint")}</p>
+        <div class="kbList" style="font-size:0.84rem">…</div>
+        <input type="text" class="kbTitle" placeholder="${t("docTitle")}" style="margin-top:8px" />
+        <textarea class="kbContent" placeholder="${t("docContent")}" style="min-height:60px"></textarea>
+        <button class="small kbAdd" style="margin-top:6px">${t("addDoc")}</button>
+      </details>
     </div>`).join("");
 
   body.querySelectorAll(".agent-card").forEach((card) => {
@@ -691,6 +754,39 @@ async function managersView() {
     card.querySelector("details").addEventListener("toggle", (e) => {
       if (e.target.open) loadMemory();
     });
+
+    const kbList = card.querySelector(".kbList");
+    const loadKnowledge = async () => {
+      const docs = await api(`/agents/${id}/knowledge`);
+      kbList.innerHTML = docs.length
+        ? docs.map((d) => `
+            <div style="display:flex;gap:8px;align-items:baseline;border-top:1px solid var(--line);padding:5px 0">
+              <span style="flex:1"><strong>${esc(d.title)}</strong> <span class="sub">(${esc(d.updatedAt.slice(0, 10))}, ${d.content.length} chars)</span></span>
+              <button class="small ghost danger" data-did="${esc(d.id)}">${t("deleteDoc")}</button>
+            </div>`).join("")
+        : `<p class="sub">${t("noDocs")}</p>`;
+      kbList.querySelectorAll("button[data-did]").forEach((b) => {
+        b.onclick = async () => {
+          await api(`/agents/${id}/knowledge/${b.dataset.did}`, { method: "DELETE" });
+          loadKnowledge();
+        };
+      });
+    };
+    card.querySelector(".kbDetails").addEventListener("toggle", (e) => {
+      if (e.target.open) loadKnowledge();
+    });
+    card.querySelector(".kbAdd").onclick = async () => {
+      const title = card.querySelector(".kbTitle").value.trim();
+      const content = card.querySelector(".kbContent").value.trim();
+      if (!title || !content) return;
+      await api(`/agents/${id}/knowledge`, {
+        method: "POST",
+        body: JSON.stringify({ title, content }),
+      });
+      card.querySelector(".kbTitle").value = "";
+      card.querySelector(".kbContent").value = "";
+      loadKnowledge();
+    };
     const saveConfig = async (extra = {}) => {
       const focusText = card.querySelector(".fo").value.trim();
       const wmSel = card.querySelector(".wm");

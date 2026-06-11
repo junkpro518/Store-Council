@@ -215,6 +215,22 @@ export const AGENTS: AgentDef[] = [
     ],
   },
   {
+    id: "geo",
+    name: "GEO Manager",
+    nameAr: "مدير تحسين محركات البحث التوليدية",
+    title: "Head of Generative Engine Optimization",
+    expertise:
+      "Generative Engine Optimization expert: making the store's products and content the answer AI assistants give. Optimizes for citability and recommendation by ChatGPT, Claude, Perplexity, Gemini, and Google AI Overviews — entity clarity, structured data, question-shaped content, comparison content, and brand-fact consistency across the web.",
+    endpoints: ["products", "categories", "seo", "store-pages", "brands", "reviews", "questions"],
+    focus: [
+      "Question-shaped content coverage: do store pages answer the questions shoppers ask AI assistants (best X for Y, X vs Y, هل X أصلي)?",
+      "Entity clarity: unambiguous product names, brand facts, specs and units AI models can extract and cite confidently",
+      "Comparison and 'best-of' content that positions the store's products inside AI-generated answers",
+      "Structured signals: FAQ blocks, spec tables, review substance — the formats generative engines quote",
+      "Consistency of store/brand facts (name, policies, shipping promises) across pages so AI answers don't contradict",
+    ],
+  },
+  {
     id: "growth",
     name: "Growth Strategist",
     nameAr: "مدير النمو والاستراتيجية",

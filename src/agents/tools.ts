@@ -6,6 +6,8 @@ import { metricsHistory } from "../pipeline/metrics.js";
 import { playbooksFor, getPlaybook } from "./skills.js";
 import { isWriteAllowed } from "../salla/client.js";
 import { requestChange } from "../changes/changes.js";
+import { visibleDocs, getVisibleDoc } from "./knowledge.js";
+import { askOwner } from "./questions.js";
 
 const MAX_CONSULT_DEPTH = 2;
 
@@ -246,7 +248,63 @@ export function buildTools(
     },
   };
 
-  const tools = [sallaRead, consultAgent, councilBoard, readPlaybook, saveMemory, metrics, calculate];
+  const knowledgeBase: ToolDef = {
+    name: "knowledge_base",
+    description:
+      "Documents the store owner provided to you beyond Salla data (supplier terms, brand guidelines, policies, market notes). action='list' shows titles+ids; action='read' loads one document. Consult it BEFORE assuming anything in an area it covers — owner-provided facts beat your assumptions.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "read"] },
+        doc_id: { type: "string", description: "Required for 'read'." },
+      },
+      required: ["action"],
+    },
+    run: async (input) => {
+      if (input.action === "read") {
+        const doc = getVisibleDoc(agent.id, String(input.doc_id ?? ""));
+        return doc
+          ? `# ${doc.title}\n(updated ${doc.updatedAt.slice(0, 10)})\n\n${doc.content}`
+          : "No document with that id in your knowledge base. Use action='list'.";
+      }
+      const docs = visibleDocs(agent.id);
+      return docs.length
+        ? docs.map((v) => `[${v.doc.id}] ${v.doc.title}${v.scope === "shared" ? " (shared)" : ""}`).join("\n")
+        : "Your knowledge base is empty — the owner hasn't added documents yet.";
+    },
+  };
+
+  const askOwnerTool: ToolDef = {
+    name: "ask_owner",
+    description:
+      "Send a question to the store owner's inbox when a decision or missing fact only THEY can resolve blocks better advice (budgets, supplier terms, brand strategy, intent behind a change you observed). Use during autonomous analysis — in live chat, just ask in your reply instead. Check your memory and knowledge_base first; never ask what data can answer. After asking, proceed with your best explicit assumption.",
+    parameters: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "One focused, answerable question." },
+        context: { type: "string", description: "Why you're asking — the finding/decision it unblocks, with the key number." },
+      },
+      required: ["question", "context"],
+    },
+    run: async (input) => {
+      const question = String(input.question ?? "").trim();
+      const context = String(input.context ?? "").trim();
+      if (question.length < 10) return "Ask a real, complete question.";
+      return askOwner(agent.id, question, context);
+    },
+  };
+
+  const tools = [
+    sallaRead,
+    consultAgent,
+    councilBoard,
+    readPlaybook,
+    knowledgeBase,
+    askOwnerTool,
+    saveMemory,
+    metrics,
+    calculate,
+  ];
 
   if (agent.writeMode !== "read_only") {
     const confirmMode = agent.writeMode === "confirm";

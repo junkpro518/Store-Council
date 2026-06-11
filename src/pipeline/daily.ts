@@ -43,6 +43,7 @@ const DAILY_BRIEF = `Run your daily analysis of the store as part of today's cou
 - Produce your TOP 3 findings for today, each as a full recommendation (What / Why with numbers / How — exact Salla dashboard steps / Expected impact).
 - If a finding crosses into a colleague's domain, consult them before finalizing it.
 - If you learned something durable today (a pattern, a mistake in your past reasoning, an owner constraint), save_memory it.
+- If a finding depends on a decision or fact only the owner has (after checking your knowledge_base and memory), ask_owner instead of guessing — then proceed with your best explicit assumption, labeled as such.
 - If nothing in your domain needs attention today, say so explicitly and note the one metric you'll watch.`;
 
 async function mapLimited<T, R>(

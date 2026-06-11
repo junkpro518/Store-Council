@@ -37,6 +37,11 @@ import { connectionInfo } from "./salla/auth.js";
 import { llm, testOpenRouter } from "./llm/client.js";
 import { memories, forget } from "./agents/memory.js";
 import { curatorStatus, runCurator } from "./pipeline/curator.js";
+import { listDocs, addDoc, updateDoc, deleteDoc } from "./agents/knowledge.js";
+import { listQuestions, answerQuestion, dismissQuestion, QuestionStatus } from "./agents/questions.js";
+import * as admin from "./admin/adminAuth.js";
+import { platformState, updatePlatform, tenantLocked } from "./admin/platform.js";
+import { recentEvents as recentWebhookEvents } from "./salla/webhooks.js";
 import { achievements } from "./pipeline/daily.js";
 import { listChanges, approveChange, rejectChange, ChangeStatus } from "./changes/changes.js";
 import { buildCouncilMcpServer } from "./mcp/council.js";
@@ -82,7 +87,29 @@ function requireAuth(
   res: express.Response,
   next: express.NextFunction
 ): void {
-  if (owner.verifyToken(bearer(req))) {
+  if (!owner.verifyToken(bearer(req))) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  // Central-panel lock gate: a locked tenant can log in and read the lock
+  // message, but every merchant operation is suspended until unlocked.
+  if (tenantLocked()) {
+    res.status(402).json({
+      error:
+        "تم إيقاف الخدمة مؤقتاً من إدارة المنصة (اشتراك غير مفعّل). تواصل مع الدعم. / Service suspended by the platform administrator (inactive subscription). Contact support.",
+      locked: true,
+    });
+    return;
+  }
+  next();
+}
+
+function requireAdmin(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  if (admin.adminVerify(bearer(req))) {
     next();
     return;
   }
@@ -433,6 +460,180 @@ app.get("/curator/status", requireAuth, (_req, res) => {
 });
 
 app.post("/curator/run", requireAuth, async (_req, res) => {
+  try {
+    res.json({ ok: true, summary: await runCurator() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------- Knowledge base (owner-provided documents per agent) ----------
+
+function validKnowledgeOwner(id: string): boolean {
+  return id === "all" || Boolean(getAgent(id));
+}
+
+app.get("/agents/:id/knowledge", requireAuth, (req, res) => {
+  if (!validKnowledgeOwner(req.params.id)) {
+    res.status(404).json({ error: `No agent "${req.params.id}"` });
+    return;
+  }
+  res.json(listDocs(req.params.id));
+});
+
+app.post("/agents/:id/knowledge", requireAuth, (req, res) => {
+  if (!validKnowledgeOwner(req.params.id)) {
+    res.status(404).json({ error: `No agent "${req.params.id}"` });
+    return;
+  }
+  try {
+    res.json(addDoc(req.params.id, String(req.body?.title ?? ""), String(req.body?.content ?? "")));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.put("/agents/:id/knowledge/:docId", requireAuth, (req, res) => {
+  const updated = updateDoc(req.params.id, req.params.docId, {
+    ...(req.body?.title !== undefined ? { title: String(req.body.title) } : {}),
+    ...(req.body?.content !== undefined ? { content: String(req.body.content) } : {}),
+  });
+  if (!updated) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+  res.json(updated);
+});
+
+app.delete("/agents/:id/knowledge/:docId", requireAuth, (req, res) => {
+  if (!deleteDoc(req.params.id, req.params.docId)) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// ---------- Owner questions (the managers' discussion inbox) ----------
+
+app.get("/questions", requireAuth, (req, res) => {
+  const status = req.query.status as QuestionStatus | undefined;
+  if (status && !["pending", "answered", "dismissed"].includes(status)) {
+    res.status(400).json({ error: "Invalid status filter" });
+    return;
+  }
+  res.json(listQuestions(status));
+});
+
+app.post("/questions/:id/answer", requireAuth, (req, res) => {
+  const answer = String(req.body?.answer ?? "").trim();
+  if (!answer) {
+    res.status(400).json({ error: "Body must include { answer }" });
+    return;
+  }
+  const updated = answerQuestion(req.params.id, answer);
+  if (!updated) {
+    res.status(404).json({ error: "No pending question with that id" });
+    return;
+  }
+  res.json(updated);
+});
+
+app.post("/questions/:id/dismiss", requireAuth, (req, res) => {
+  if (!dismissQuestion(req.params.id)) {
+    res.status(404).json({ error: "No pending question with that id" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// ---------- Central panel (platform owner) — /admin/* ----------
+
+app.get("/admin/auth/status", (req, res) => {
+  res.json({ setup: admin.adminIsSetup(), authenticated: admin.adminVerify(bearer(req)) });
+});
+
+app.post("/admin/auth/setup", (req, res) => {
+  try {
+    res.json({ token: admin.adminSetup(String(req.body?.password ?? "")) });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const adminLoginFailures = new Map<string, { count: number; lockedUntil: number }>();
+
+app.post("/admin/auth/login", (req, res) => {
+  const ip = req.ip ?? "unknown";
+  const entry = adminLoginFailures.get(ip);
+  if (entry && entry.lockedUntil > Date.now()) {
+    res.status(429).json({ error: "Too many failed attempts." });
+    return;
+  }
+  const token = admin.adminLogin(String(req.body?.password ?? ""));
+  if (!token) {
+    const count = (entry?.count ?? 0) + 1;
+    adminLoginFailures.set(ip, { count, lockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0 });
+    res.status(401).json({ error: "Wrong password" });
+    return;
+  }
+  adminLoginFailures.delete(ip);
+  res.json({ token });
+});
+
+app.post("/admin/auth/logout", requireAdmin, (req, res) => {
+  admin.adminLogout(bearer(req)!);
+  res.json({ ok: true });
+});
+
+app.get("/admin/overview", requireAdmin, async (_req, res) => {
+  const reports = listReports();
+  const allActions = reports.flatMap((r) => getReport(r.date)?.actions ?? []);
+  const info = isConnected() ? await getStoreInfo() : null;
+  res.json({
+    platform: platformState(),
+    store: {
+      connected: isConnected(),
+      ...connectionInfo(),
+      name: info?.name ?? "",
+      domain: info?.domain ?? "",
+    },
+    merchantSetup: owner.isSetup(),
+    aiConfigured: aiConfigured(),
+    provider: getSettings().provider,
+    counts: {
+      reports: reports.length,
+      actions: allActions.length,
+      actionsDone: allActions.filter((a) => a.status === "done").length,
+      pendingChanges: listChanges("pending").length,
+      pendingQuestions: listQuestions("pending").length,
+      recentEvents: recentWebhookEvents(5).length,
+    },
+    agents: effectiveAgents().map((a) => ({
+      id: a.id,
+      name: a.name,
+      enabled: a.enabled,
+      writeMode: a.writeMode,
+      memories: memories(a.id).length,
+    })),
+    curator: curatorStatus(),
+    analysisRunning,
+  });
+});
+
+app.put("/admin/platform", requireAdmin, (req, res) => {
+  const { plan, status, notes } = req.body ?? {};
+  if (plan !== undefined && !["trial", "basic", "pro", "growth", "custom"].includes(String(plan))) {
+    res.status(400).json({ error: "Invalid plan" });
+    return;
+  }
+  if (status !== undefined && !["active", "locked"].includes(String(status))) {
+    res.status(400).json({ error: "Invalid status" });
+    return;
+  }
+  res.json(updatePlatform({ plan, status, notes }));
+});
+
+app.post("/admin/curator/run", requireAdmin, async (_req, res) => {
   try {
     res.json({ ok: true, summary: await runCurator() });
   } catch (err) {

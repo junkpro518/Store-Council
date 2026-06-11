@@ -77,6 +77,25 @@ Settings shape:
 
 Action item shape: `{title, manager, what, why, how, impact, priority, status}`.
 
+## Knowledge base & questions
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/agents/:id/knowledge` 🔒 | List / add owner-provided documents for a manager (`:id` may be `all` for shared docs) |
+| PUT/DELETE | `/agents/:id/knowledge/:docId` 🔒 | Edit / remove a document |
+| GET | `/questions?status=pending\|answered\|dismissed` 🔒 | Managers' questions to the owner |
+| POST | `/questions/:id/answer` `{answer}` 🔒 | Answer (written into the manager's memory) |
+| POST | `/questions/:id/dismiss` 🔒 | Dismiss |
+
+## Central panel (`/admin/*` — separate platform-owner credentials)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/admin/auth/status` · POST `/admin/auth/setup` · `login` · `logout` | Admin auth (min 10-char password, 12h sessions, lockout). Merchant and admin tokens are not interchangeable |
+| GET | `/admin/overview` | Tenant state, store identity, health, counts, agent fleet, curator |
+| PUT | `/admin/platform` | `{plan: trial\|basic\|pro\|growth\|custom, status: active\|locked, notes}` — `locked` suspends all merchant APIs with 402 |
+| POST | `/admin/curator/run` | Trigger memory curation |
+
 ## Change requests (write modes)
 
 When the owner sets store edit permissions to `confirm` or `auto` (globally in Settings or per manager), agents gain a `salla_write` tool restricted to a conservative allowlist (POST/PUT on products, coupons, specialoffers, categories — no deletes, ever).

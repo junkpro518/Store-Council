@@ -32,7 +32,7 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
   - configure Salla app credentials and connect/disconnect the store,
   - change the owner password.
 
-## The Council (1 orchestrator + 14 specialists)
+## The Council (1 orchestrator + 15 specialists)
 
 | ID | Manager | Domain |
 |---|---|---|
@@ -50,11 +50,16 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 | `finance` | Finance Manager | Revenue/AOV trends, settlements, fees, taxes |
 | `reviews` | Reputation Manager | Review coverage, negative-review themes |
 | `payments` | Payments Manager | Mada/Apple Pay/BNPL/COD mix, failed transactions |
+| `geo` | GEO Manager | Generative Engine Optimization — being the answer ChatGPT/Claude/Perplexity give |
 | `growth` | Growth Strategist | KPIs, assortment gaps, strategic priorities |
 
 Each agent has an expert persona **with critical rules** (red lines it never crosses) and seven tools: department-scoped `salla_read`, `consult_agent` (pairwise teamwork), `council_board` (the team's shared blackboard during daily sessions), `read_playbook` (domain field guides in SKILL.md format, loaded on demand), `save_memory`, `metrics_history` (the store's real KPI time series), and `calculate`. The agentic loop runs on the owner-selected provider: **Anthropic** (Claude Opus 4.8 with adaptive thinking, default) or **OpenRouter** (any tool-calling model).
 
 **Accountability and reach.** Implemented recommendations get their real impact **measured automatically ~14 days later** (the owning manager re-pulls the metric it cited) and land in the dashboard's **achievement ledger** — receipts, not just advice. And the platform is an **MCP server** (`/mcp`): merchants can talk to *their own council* — with its memory, specialists, and reports — from inside Claude, ChatGPT, or any MCP-capable client, using the integration token from Settings.
+
+**The council discusses and asks.** Managers are discussion partners, not suggestion machines: they state assumptions, present trade-offs with a committed recommendation, push back against the data — and when a decision or fact only the owner has blocks better advice, they **ask** (directly in chat; via the `ask_owner` inbox during autonomous analysis). Answers are saved to the manager's memory. Each manager also has an owner-managed **knowledge base** (supplier terms, policies, brand guidelines — information outside Salla) consulted before assuming anything.
+
+**Two control panels.** The merchant dashboard at `/` is the store owner's. The **central panel** at `/admin.html` (separate credentials) is the platform owner's: tenant plan and lock/unlock (locking suspends the merchant dashboard with a clear message), agent-fleet status, usage counters, and operational controls — the single-store ancestor of the SaaS admin described in `docs/saas/`.
 
 **The council learns.** Every manager keeps long-term memory: lessons it saves itself, durable store facts, and automatic feedback whenever the owner implements or dismisses a recommendation — rejected advice isn't repeated, accepted directions are reinforced. A background **curator** periodically cleans each memory (merging duplicates, dropping stale items), and the owner can inspect or delete any memory from the dashboard.
 
