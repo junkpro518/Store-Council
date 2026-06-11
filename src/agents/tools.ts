@@ -1,6 +1,6 @@
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { AgentDef } from "./definitions.js";
+import { EffectiveAgent, effectiveAgent } from "./definitions.js";
 import { sallaGet, sallaGetAll } from "../salla/client.js";
 
 const MAX_CONSULT_DEPTH = 2;
@@ -18,7 +18,7 @@ function clip(value: unknown, maxChars = 24_000): string {
  * `runAgent` is injected to avoid a circular import with runner.ts.
  */
 export function buildTools(
-  agent: AgentDef,
+  agent: EffectiveAgent,
   runAgent: (agentId: string, question: string, depth: number) => Promise<string>,
   depth: number
 ) {
@@ -67,6 +67,11 @@ export function buildTools(
     }),
     run: async ({ agent_id, question }) => {
       if (agent_id === agent.id) return "You cannot consult yourself.";
+      const colleague = effectiveAgent(agent_id);
+      if (!colleague) return `No manager with id "${agent_id}" exists.`;
+      if (!colleague.enabled) {
+        return `${colleague.name} is currently disabled by the store owner — answer with the data you have, or recommend the owner re-enable that department.`;
+      }
       if (depth >= MAX_CONSULT_DEPTH) {
         return "Consultation depth limit reached — answer with the data you already have.";
       }

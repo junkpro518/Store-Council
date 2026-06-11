@@ -1,14 +1,30 @@
-# Store Council — AI Advisory Platform for Salla Stores
+# مجلس المتجر — Store Council
 
-A multi-agent AI platform that connects to a merchant's **Salla** store in strict **read-only** mode, analyzes every aspect of the store **automatically every day**, and delivers expert recommendations with **step-by-step Salla-dashboard implementation instructions**. Each agent is a specialist "department manager" the store owner can **chat with directly**, and managers **consult each other** when a finding crosses departments.
+**An AI management team for a Salla store.** The platform connects to one Salla store in strict **read-only** mode, analyzes every aspect of it **automatically every day**, and delivers expert recommendations with **step-by-step Salla-dashboard implementation instructions**. The owner can **chat directly with any of the 14 specialist AI department managers**, who also **consult each other** when a finding crosses departments.
+
+Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal.
 
 > The platform never modifies the store. It observes, analyzes, recommends, and explains — the merchant always executes the changes.
 
-## The Council (1 orchestrator + 14 specialist managers)
+---
+
+## What the owner gets
+
+- **Daily report** — every morning the full council analyzes the store in parallel; the General Manager consolidates everything into an executive summary plus a ranked, trackable action list. Each action carries *What / Why (with the store's own numbers) / How (exact dashboard steps) / Expected impact*, and can be marked **done** or **dismissed** from the dashboard.
+- **Chat with every manager** — persistent, per-manager conversations in Arabic or English. Managers pull live store data while answering.
+- **Full control without code** — from the dashboard the owner can:
+  - set/change the Anthropic API key, model, and reply language,
+  - write a free-text store profile every manager reads,
+  - rename any manager, give it standing instructions, replace its focus areas, or disable it entirely,
+  - change the daily schedule (cron + timezone), report depth, and parallelism,
+  - configure Salla app credentials and connect/disconnect the store,
+  - change the owner password.
+
+## The Council (1 orchestrator + 14 specialists)
 
 | ID | Manager | Domain |
 |---|---|---|
-| `gm` | General Manager (المدير العام) | Orchestrates, prioritizes, resolves conflicts, writes the daily report |
+| `gm` | General Manager (المدير العام) | Prioritizes, resolves conflicts, writes the daily report (cannot be disabled) |
 | `catalog` | Catalog Manager | Product data quality, images, categories, merchandising |
 | `pricing` | Pricing Manager | Price architecture, discounts, promotions, margins |
 | `marketing` | Marketing Manager | Campaigns, coupons, affiliates, on-site ads |
@@ -24,87 +40,87 @@ A multi-agent AI platform that connects to a merchant's **Salla** store in stric
 | `payments` | Payments Manager | Mada/Apple Pay/BNPL/COD mix, failed transactions |
 | `growth` | Growth Strategist | KPIs, assortment gaps, strategic priorities |
 
-Each agent has:
-- An **expert persona** with standing analysis focus areas (`src/agents/definitions.ts`).
-- A **`salla_read` tool** scoped to its department's endpoints only (read-only, allowlisted at two layers — see `src/salla/client.ts`).
-- A **`consult_agent` tool** for inter-agent communication (depth-limited to prevent loops).
-- A **`calculate` tool** for exact metrics (AOV, rates, deltas).
+Each agent has an expert persona, a `salla_read` tool scoped to **its department's endpoints only**, a `consult_agent` tool for inter-agent communication (depth-limited), and a `calculate` tool for exact metrics. Agents run on **Claude Opus 4.8** with adaptive thinking.
 
-Agents run on **Claude Opus 4.8** with adaptive thinking via the Anthropic SDK tool runner.
-
-## How it works
+## Architecture
 
 ```
 Salla store ──OAuth (read-only)──▶ Salla client (GET-only allowlist)
                                         │ salla_read tool
                                         ▼
-        ┌──────── 14 specialist managers (parallel, daily cron) ────────┐
-        │  each: pull data → analyze → consult colleagues → top-3 recs  │
-        └──────────────────────────┬─────────────────────────────────────┘
+        ┌──────── enabled specialist managers (parallel, daily cron) ───────┐
+        │  each: pull data → analyze → consult colleagues → top-3 recs      │
+        └──────────────────────────┬──────────────────────────────────────────┘
                                    ▼
-        General Manager consolidates → daily report (top-5 actions,
-        each with What / Why-with-numbers / How-in-Salla-dashboard / Impact)
+        General Manager consolidates → structured action items (tracked
+        done/dismissed) + executive summary
                                    ▼
-        Owner reads the report and chats with any manager for details
+        Owner dashboard: report, action checklist, chat, full settings
 ```
 
-## Setup
+## Quick start
 
 ```bash
-cp .env.example .env   # fill in ANTHROPIC_API_KEY + Salla app credentials
 npm install
-npm run dev            # starts the API server + daily cron
+npm run dev        # development (tsx)
+# or production:
+npm run build && npm start
 ```
 
-1. Create an app in the [Salla Partners portal](https://salla.partners), set the callback URL to `SALLA_REDIRECT_URI`, and request **read-only scopes only**.
-2. Open `http://localhost:3000/auth/salla` and approve the app on the store.
-3. Trigger a first analysis: `curl -X POST localhost:3000/reports/run` (or wait for the daily cron, default 05:00).
+Then open `http://localhost:3000` and follow the dashboard:
 
-## API
+1. **First run** — set the owner password.
+2. **Settings → AI** — paste your Anthropic API key (console.anthropic.com).
+3. **Settings → Salla** — create an app in the [Salla Partners portal](https://salla.partners) with **read-only scopes**, set its callback URL to `http://<your-host>:3000/auth/salla/callback`, paste the Client ID/Secret, and click **Connect store**.
+4. **Dashboard → Run analysis now** for the first report, or wait for the daily schedule (default 05:00 Asia/Riyadh).
+
+No environment variables are required; `.env.example` lists optional server-level overrides (port, data directory) and initial defaults.
+
+## API (all owner-authenticated unless noted)
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness + store-connection status |
-| `GET` | `/auth/salla` → callback | Connect a store via OAuth |
-| `GET` | `/agents` | List the council |
-| `POST` | `/agents/:id/chat` `{message}` | Chat with a manager (it pulls live store data as needed) |
-| `GET/DELETE` | `/agents/:id/chat` | Read / reset a chat history |
-| `POST` | `/reports/run` | Run the full daily analysis now |
-| `GET` | `/reports` / `/reports/:date` | List / read daily reports |
-
-Example — ask the Pricing Manager something (Arabic or English both work):
-
-```bash
-curl -X POST localhost:3000/agents/pricing/chat \
-  -H 'content-type: application/json' \
-  -d '{"message": "هل أسعار منتجاتي الأكثر مبيعاً مناسبة؟"}'
-```
+| `GET` | `/health` | Liveness (public) |
+| `GET` | `/auth/status` | Setup/auth/connection state (public) |
+| `POST` | `/auth/setup` · `/auth/login` · `/auth/logout` · `/auth/change-password` | Owner auth |
+| `GET` | `/auth/salla` → `/auth/salla/callback` | Connect the store via OAuth |
+| `POST` | `/salla/disconnect` | Disconnect the store |
+| `GET/PUT` | `/settings` | Read / update all platform settings (reschedules cron live) |
+| `GET` | `/agents` | The council with effective (owner-customized) config |
+| `PUT` | `/agents/:id/config` | Enable/disable, rename, instructions, focus areas |
+| `POST/GET/DELETE` | `/agents/:id/chat` | Chat with a manager / history / reset |
+| `GET` | `/reports` · `/reports/latest` · `/reports/:date` · `/reports/status` | Daily reports |
+| `POST` | `/reports/run` | Start an analysis now (async; poll `/reports/status`) |
+| `POST` | `/reports/:date/actions/:index` | Mark an action `done` / `dismissed` / `new` |
 
 ## Read-only enforcement (three layers)
 
-1. **OAuth scope** — request only read scopes when registering the Salla app.
-2. **API client** — `src/salla/client.ts` can only issue `GET` against an explicit endpoint allowlist; there is no code path for writes.
+1. **OAuth scope** — register the Salla app with read-only scopes.
+2. **API client** — `src/salla/client.ts` can only issue `GET` against an explicit endpoint allowlist; no write code path exists.
 3. **Agent tools** — each agent's `salla_read` is further scoped to its own department's endpoints; system prompts forbid claiming any change was made.
 
 ## Project layout
 
 ```
+public/                   # owner dashboard (Arabic-first SPA, no build step)
 src/
-  agents/definitions.ts   # the 15-agent roster: personas, endpoints, focus areas
-  agents/prompts.ts       # cacheable system-prompt builder
-  agents/tools.ts         # salla_read / consult_agent / calculate (Zod tools)
+  agents/definitions.ts   # 15-agent roster + owner-override resolution
+  agents/prompts.ts       # system prompts (language policy, store context, overrides)
+  agents/tools.ts         # salla_read / consult_agent / calculate
   agents/runner.ts        # Claude tool-runner loop per agent
-  salla/auth.ts           # OAuth (authorize, exchange, refresh)
-  salla/client.ts         # GET-only allowlisted Salla Admin API client
-  pipeline/daily.ts       # parallel daily analysis + GM consolidation
+  auth/owner.ts           # owner password + session tokens (scrypt)
   chat/chatStore.ts       # per-agent chat history
-  server.ts               # Express API + cron scheduler
-  store/jsonStore.ts      # file-backed storage (swap for a DB in production)
+  llm/client.ts           # Anthropic client from runtime settings
+  pipeline/daily.ts       # parallel analysis + GM consolidation + action extraction
+  salla/auth.ts           # OAuth (authorize, exchange, refresh, disconnect)
+  salla/client.ts         # GET-only allowlisted Salla Admin API client
+  server.ts               # Express API + dashboard hosting + cron scheduler
+  settings/settings.ts    # runtime settings (everything the owner can change)
+  store/jsonStore.ts      # file-backed storage under DATA_DIR
 ```
 
-## Roadmap
+## Operations notes
 
-- Multi-tenant storage (Postgres/Supabase) and per-store token isolation
-- Salla webhooks for near-real-time alerts between daily runs
-- Web dashboard (Arabic-first) for reports and chat
-- Recommendation lifecycle tracking (proposed → implemented → measured impact)
+- **State** lives in `DATA_DIR` (default `./data`): settings, owner auth, Salla tokens, reports, chat history. Back up this folder; deleting it factory-resets the platform.
+- **Deploy** behind HTTPS (the owner token and API keys travel over this connection). Any Node 20+ host works: `npm run build && npm start`.
+- **Selling to more stores later**: each customer gets their own deployment (one container + one data dir per store). The storage layer is isolated behind `JsonStore`, so a future multi-tenant version only needs to swap that module for a database.

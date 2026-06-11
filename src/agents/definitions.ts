@@ -251,3 +251,36 @@ export const ALL_AGENTS = [ORCHESTRATOR, ...AGENTS];
 export function getAgent(id: string): AgentDef | undefined {
   return ALL_AGENTS.find((a) => a.id === id);
 }
+
+// ---------- Owner overrides (configured from the dashboard) ----------
+
+import { agentOverride } from "../settings/settings.js";
+
+export interface EffectiveAgent extends AgentDef {
+  enabled: boolean;
+  customInstructions: string;
+}
+
+/** An agent with the owner's runtime customizations applied. */
+export function effectiveAgent(id: string): EffectiveAgent | undefined {
+  const base = getAgent(id);
+  if (!base) return undefined;
+  const o = agentOverride(id);
+  return {
+    ...base,
+    name: o.displayName?.trim() || base.name,
+    focus: o.focus && o.focus.length > 0 ? o.focus : base.focus,
+    // The orchestrator can never be disabled — it writes the daily report.
+    enabled: id === "gm" ? true : o.enabled !== false,
+    customInstructions: o.customInstructions?.trim() ?? "",
+  };
+}
+
+export function effectiveAgents(): EffectiveAgent[] {
+  return ALL_AGENTS.map((a) => effectiveAgent(a.id)!);
+}
+
+/** Specialist agents currently enabled (excludes the orchestrator). */
+export function enabledSpecialists(): EffectiveAgent[] {
+  return AGENTS.map((a) => effectiveAgent(a.id)!).filter((a) => a.enabled);
+}

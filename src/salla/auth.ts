@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { getSettings } from "../settings/settings.js";
 import { JsonStore } from "../store/jsonStore.js";
 
 export interface SallaTokens {
@@ -9,11 +10,22 @@ export interface SallaTokens {
 
 const tokenStore = new JsonStore<SallaTokens | null>("salla-tokens", null);
 
+function sallaCreds() {
+  const s = getSettings().salla;
+  if (!s.clientId || !s.clientSecret) {
+    throw new Error(
+      "Salla app credentials are not configured. Add them in Settings on the dashboard."
+    );
+  }
+  return s;
+}
+
 export function authorizeUrl(state: string): string {
+  const creds = sallaCreds();
   const params = new URLSearchParams({
-    client_id: config.salla.clientId,
+    client_id: creds.clientId,
     response_type: "code",
-    redirect_uri: config.salla.redirectUri,
+    redirect_uri: creds.redirectUri,
     // offline_access is required to receive a refresh token
     scope: "offline_access",
     state,
@@ -22,12 +34,13 @@ export function authorizeUrl(state: string): string {
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<SallaTokens> {
+  const creds = sallaCreds();
   const res = await fetch(`${config.salla.authBase}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: config.salla.clientId,
-      client_secret: config.salla.clientSecret,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       ...body,
     }),
   });
@@ -52,7 +65,7 @@ export function exchangeCode(code: string): Promise<SallaTokens> {
   return tokenRequest({
     grant_type: "authorization_code",
     code,
-    redirect_uri: config.salla.redirectUri,
+    redirect_uri: sallaCreds().redirectUri,
   });
 }
 
@@ -60,7 +73,7 @@ export async function getAccessToken(): Promise<string> {
   const tokens = tokenStore.read();
   if (!tokens) {
     throw new Error(
-      "Store not connected. Visit /auth/salla to connect a Salla store first."
+      "Store not connected. Connect your Salla store from the dashboard first."
     );
   }
   if (Date.now() < tokens.expires_at - 60_000) return tokens.access_token;
@@ -73,4 +86,8 @@ export async function getAccessToken(): Promise<string> {
 
 export function isConnected(): boolean {
   return tokenStore.read() !== null;
+}
+
+export function disconnectStore(): void {
+  tokenStore.write(null);
 }

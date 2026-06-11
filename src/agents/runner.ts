@@ -1,10 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { config } from "../config.js";
-import { getAgent } from "./definitions.js";
+import { llm, modelId } from "../llm/client.js";
+import { effectiveAgent } from "./definitions.js";
 import { systemPrompt } from "./prompts.js";
 import { buildTools } from "./tools.js";
-
-const client = new Anthropic();
 
 export interface Turn {
   role: "user" | "assistant";
@@ -24,13 +22,16 @@ export async function runAgent(
   depth = 0,
   history: Turn[] = []
 ): Promise<string> {
-  const agent = getAgent(agentId);
+  const agent = effectiveAgent(agentId);
   if (!agent) throw new Error(`Unknown agent "${agentId}"`);
+  if (!agent.enabled) {
+    throw new Error(`${agent.name} is disabled. Enable it from the Managers page.`);
+  }
 
   const tools = buildTools(agent, (id, q, d) => runAgent(id, q, d), depth);
 
-  const finalMessage = await client.beta.messages.toolRunner({
-    model: config.anthropicModel,
+  const finalMessage = await llm().beta.messages.toolRunner({
+    model: modelId(),
     max_tokens: 16000,
     thinking: { type: "adaptive" },
     system: [
