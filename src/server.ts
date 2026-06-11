@@ -51,10 +51,20 @@ import { sallaGet } from "./salla/client.js";
 
 const app = express();
 app.disable("x-powered-by");
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  if (req.path.startsWith("/admin")) {
+    // The central panel is never embeddable.
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+  } else {
+    // The merchant dashboard may be embedded inside the Salla dashboard only.
+    res.setHeader(
+      "Content-Security-Policy",
+      "frame-ancestors 'self' https://*.salla.sa https://salla.sa https://*.salla.group"
+    );
+  }
   next();
 });
 app.use(
@@ -217,6 +227,32 @@ app.get("/auth/salla/callback", async (req, res) => {
   } catch (err) {
     res.status(500).send((err as Error).message);
   }
+});
+
+// ---------- Salla-dashboard embedding (auto-login inside the iframe) ----------
+
+app.get("/embed", (req, res) => {
+  const token = owner.sessionFromEmbedKey(String(req.query.k ?? ""));
+  if (!token) {
+    res.status(401).send("Invalid embed key. Generate a fresh embed link from Settings.");
+    return;
+  }
+  // Store the session in the browser, then enter the dashboard.
+  res
+    .type("html")
+    .send(
+      `<!doctype html><meta charset="utf-8"><script>localStorage.setItem("sc_token",${JSON.stringify(token)});location.replace("/");</script>`
+    );
+});
+
+app.get("/auth/embed-link", requireAuth, (req, res) => {
+  const origin = `${req.protocol}://${req.get("host")}`;
+  res.json({ url: `${origin}/embed?k=${owner.embedKey()}` });
+});
+
+app.post("/auth/embed-link/rotate", requireAuth, (req, res) => {
+  const origin = `${req.protocol}://${req.get("host")}`;
+  res.json({ url: `${origin}/embed?k=${owner.rotateEmbedKey()}` });
 });
 
 app.post("/salla/disconnect", requireAuth, (_req, res) => {

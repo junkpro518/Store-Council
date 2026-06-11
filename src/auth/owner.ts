@@ -11,6 +11,8 @@ interface AuthState {
   sessions: { token: string; expiresAt: number }[];
   /** Long-lived token for external integrations (MCP connectors). */
   integrationToken?: string | null;
+  /** Secret key for the Salla-dashboard embed link (auto-login inside iframe). */
+  embedKey?: string | null;
 }
 
 const store = new JsonStore<AuthState>("auth", {
@@ -82,6 +84,40 @@ export function integrationToken(): string {
 export function rotateIntegrationToken(): string {
   const token = "sc_int_" + crypto.randomBytes(32).toString("hex");
   store.update((s) => ({ ...s, integrationToken: token }));
+  return token;
+}
+
+/** Key embedded in the Salla-dashboard app URL. Created on first request. */
+export function embedKey(): string {
+  const state = store.read();
+  if (state.embedKey) return state.embedKey;
+  const key = "sc_emb_" + crypto.randomBytes(32).toString("hex");
+  store.update((s) => ({ ...s, embedKey: key }));
+  return key;
+}
+
+export function rotateEmbedKey(): string {
+  const key = "sc_emb_" + crypto.randomBytes(32).toString("hex");
+  store.update((s) => ({ ...s, embedKey: key }));
+  return key;
+}
+
+/** Exchange a valid embed key for a regular session token (iframe auto-login). */
+export function sessionFromEmbedKey(key: string): string | null {
+  const state = store.read();
+  if (!state.embedKey || !state.passwordHash) return null;
+  const a = Buffer.from(state.embedKey);
+  const b = Buffer.from(key);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  const token = crypto.randomBytes(32).toString("hex");
+  const now = Date.now();
+  store.update((s) => ({
+    ...s,
+    sessions: [
+      ...s.sessions.filter((sess) => sess.expiresAt > now),
+      { token, expiresAt: now + SESSION_TTL_MS },
+    ],
+  }));
   return token;
 }
 

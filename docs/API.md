@@ -27,6 +27,8 @@ Base URL: your deployment origin. All endpoints return JSON.
 | GET | `/auth/salla?token=…` | 🔒 | Redirects to Salla OAuth consent (manual connect) |
 | GET | `/auth/salla/callback` | — | OAuth callback (state-checked); redirects to the dashboard |
 | POST | `/salla/disconnect` | 🔒 | Forgets store tokens |
+| GET | `/embed?k=…` | embed key | Salla-dashboard embed entry: valid key mints a session and redirects into the dashboard (invalid → 401). The merchant SPA is frame-embeddable by `*.salla.sa` only; `/admin*` never |
+| GET / POST | `/auth/embed-link` · `/auth/embed-link/rotate` | 🔒 | Get / rotate the embed App-URL for the Salla Partners portal |
 | POST | `/webhooks/salla` | HMAC | Salla webhook receiver. Requires valid `x-salla-signature` (HMAC-SHA256 of raw body with the webhook secret). Handles `app.store.authorize` (Easy Mode connect), `app.uninstalled` (disconnect), and logs store events |
 | GET | `/store/summary` | 🔒 | `{connected, mode: "easy"\|"oauth", merchantId, name, domain, plan}`; `?refresh=1` bypasses the cache |
 | GET | `/store/events` | 🔒 | Last 30 verified webhook events `[{event, merchant, receivedAt, summary}]` |

@@ -147,6 +147,11 @@ const STRINGS = {
   docContent: { ar: "المحتوى", en: "Content" },
   deleteDoc: { ar: "حذف", en: "Delete" },
   noDocs: { ar: "لا مستندات بعد.", en: "No documents yet." },
+  embedSection: { ar: "تضمين اللوحة داخل لوحة سلة", en: "Embed inside the Salla dashboard" },
+  embedHint: { ar: "ضع هذا الرابط كعنوان التطبيق (App URL) في بوابة شركاء سلة، فيفتح مجلس المتجر داخل لوحة سلة مع تسجيل دخول تلقائي. لا تشارك الرابط مع أحد — وداخل الإطار يعمل كل شيء كالمعتاد.", en: "Set this URL as the App URL in the Salla Partners portal — Store Council then opens inside the Salla dashboard with automatic login. Keep the link private; everything works normally inside the frame." },
+  embedRotate: { ar: "توليد رابط جديد", en: "Rotate link" },
+  embedRotateWarn: { ar: "التوليد يبطل الرابط القديم المضمّن في سلة.", en: "Rotating invalidates the old link configured in Salla." },
+  mentionHint: { ar: "اكتب @ لتوجيه سؤالك لمدير محدد", en: "Type @ to direct your question to a specific manager" },
 };
 
 function t(key) {
@@ -210,6 +215,33 @@ function md(text) {
   closeLists();
   if (inPre) html += "</pre>";
   return `<div class="md">${html}</div>`;
+}
+
+/**
+ * Parse a leading @mention against the agent roster. Matches (longest first,
+ * case-insensitive): display name, Arabic name, default name, or id —
+ * followed by whitespace or end. Returns {agent, rest} or null.
+ */
+function parseMention(text, agents) {
+  const trimmed = String(text).trimStart();
+  if (!trimmed.startsWith("@")) return null;
+  const after = trimmed.slice(1);
+  let best = null;
+  for (const a of agents) {
+    if (!a.enabled) continue;
+    for (const label of [a.name, a.nameAr, a.defaultName, a.id]) {
+      if (!label) continue;
+      if (after.toLowerCase().startsWith(label.toLowerCase())) {
+        const next = after.slice(label.length);
+        if (next === "" || /^[\s:،,]/.test(next)) {
+          if (!best || label.length > best.label.length) {
+            best = { agent: a, label, rest: next.replace(/^[\s:،,]+/, "") };
+          }
+        }
+      }
+    }
+  }
+  return best ? { agent: best.agent, rest: best.rest } : null;
 }
 
 async function api(path, options = {}) {
@@ -627,8 +659,9 @@ async function chatView(agentId) {
       </div>
       <div class="chat-msgs" id="msgs"></div>
       <div class="typing" id="typing" hidden>${t("thinking")}</div>
-      <div class="chat-input">
-        <textarea id="input" placeholder="${t("chatPlaceholder")}"></textarea>
+      <div class="chat-input" style="position:relative">
+        <div id="mentionPopup" class="card" style="position:absolute;bottom:100%;inset-inline-start:12px;margin:0 0 4px;padding:6px;max-height:200px;overflow-y:auto;z-index:5" hidden></div>
+        <textarea id="input" placeholder="${t("chatPlaceholder")} — ${t("mentionHint")}"></textarea>
         <button id="sendBtn" class="fit">${t("send")}</button>
       </div>
     </div>
@@ -656,10 +689,7 @@ async function chatView(agentId) {
     renderMsgs([]);
   };
 
-  const send = async () => {
-    const message = input.value.trim();
-    if (!message) return;
-    input.value = "";
+  const deliver = async (message) => {
     history.push({ role: "user", content: message });
     renderMsgs(history);
     typing.hidden = false;
@@ -675,10 +705,67 @@ async function chatView(agentId) {
     typing.hidden = true;
     renderMsgs(history);
   };
-  body.querySelector("#sendBtn").onclick = send;
-  input.onkeydown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+
+  const send = async () => {
+    const raw = input.value.trim();
+    if (!raw) return;
+    input.value = "";
+    const mention = parseMention(raw, state.agents);
+    if (mention && mention.agent.id !== current.id) {
+      // Route to the mentioned manager: navigate there, then deliver.
+      if (mention.rest) {
+        sessionStorage.setItem(
+          "sc_pending_msg",
+          JSON.stringify({ agentId: mention.agent.id, message: mention.rest })
+        );
+      }
+      location.hash = `#/chat/${mention.agent.id}`;
+      return;
+    }
+    await deliver(mention ? mention.rest || raw : raw);
   };
+  body.querySelector("#sendBtn").onclick = send;
+
+  // @mention autocomplete popup
+  const popup = body.querySelector("#mentionPopup");
+  input.addEventListener("input", () => {
+    const m = input.value.match(/(^|\s)@([^\s@]*)$/);
+    if (!m) { popup.hidden = true; return; }
+    const q = m[2].toLowerCase();
+    const matches = state.agents.filter((a) =>
+      a.enabled &&
+      (a.id.startsWith(q) || a.name.toLowerCase().includes(q) || (a.nameAr || "").includes(m[2]))
+    ).slice(0, 8);
+    if (matches.length === 0) { popup.hidden = true; return; }
+    popup.innerHTML = matches.map((a) =>
+      `<button class="agent-pick" data-mid="${a.id}">@${esc(a.id)}<small>${esc(a.name)} — ${esc(a.nameAr)}</small></button>`).join("");
+    popup.hidden = false;
+    popup.querySelectorAll("[data-mid]").forEach((b) => {
+      b.onclick = () => {
+        input.value = input.value.replace(/(^|\s)@[^\s@]*$/, `$1@${b.dataset.mid} `);
+        popup.hidden = true;
+        input.focus();
+      };
+    });
+  });
+  input.onkeydown = (e) => {
+    if (e.key === "Escape") popup.hidden = true;
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); popup.hidden = true; send(); }
+  };
+
+  // Deliver a message routed here by an @mention from another manager's chat.
+  const pendingRaw = sessionStorage.getItem("sc_pending_msg");
+  if (pendingRaw) {
+    try {
+      const pending = JSON.parse(pendingRaw);
+      if (pending.agentId === current.id) {
+        sessionStorage.removeItem("sc_pending_msg");
+        deliver(pending.message);
+      }
+    } catch {
+      sessionStorage.removeItem("sc_pending_msg");
+    }
+  }
 }
 
 // ---------------------------------------------------------------- managers
@@ -921,6 +1008,17 @@ async function settingsView() {
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">${t("embedSection")}</h2>
+    <p class="sub">${t("embedHint")}</p>
+    <label>App URL</label>
+    <input type="text" readonly id="embedUrl" value="…" onclick="this.select()" />
+    <div class="row" style="margin-top:12px">
+      <button class="ghost danger fit" id="embedRotateBtn">${t("embedRotate")}</button>
+      <span class="sub fit">${t("embedRotateWarn")}</span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">${t("mcpSection")}</h2>
     <p class="sub">${t("mcpHint")}</p>
     <label>MCP URL</label>
@@ -996,6 +1094,14 @@ async function settingsView() {
     } catch (err) {
       notice(body.querySelector("#saveMsg"), "err", err.message);
     }
+  };
+
+  api("/auth/embed-link").then(({ url }) => {
+    body.querySelector("#embedUrl").value = url;
+  }).catch(() => {});
+  body.querySelector("#embedRotateBtn").onclick = async () => {
+    const { url } = await api("/auth/embed-link/rotate", { method: "POST" });
+    body.querySelector("#embedUrl").value = url;
   };
 
   api("/integration-token").then(({ token }) => {

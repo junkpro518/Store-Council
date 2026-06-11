@@ -85,7 +85,8 @@ In the [Salla Partners portal](https://salla.partners), for your app:
 3. **Scopes**: request **read-only** scopes only. The app never writes to stores — state this in your review notes; it simplifies approval.
 4. **OAuth callback** → `https://<your-domain>/auth/salla/callback` (used for non-App-Store installs and development).
 5. App metadata: name (e.g. «مجلس المتجر»), Arabic + English descriptions, screenshots of the dashboard/report/chat, support contact, pricing plan.
-6. Before submitting: run *Settings → System check* (all green), then install the draft app on a demo store and verify the `app.store.authorize` flow connects automatically.
+6. **Embed in the Salla dashboard (optional but recommended)**: copy the embed link from *Dashboard → Settings → Embed inside the Salla dashboard* and set it as the app's **App URL** in the Partners portal. The dashboard then opens inside Salla's merchant panel with automatic login. Rotate the link from Settings if it ever leaks.
+7. Before submitting: run *Settings → System check* (all green), then install the draft app on a demo store and verify the `app.store.authorize` flow connects automatically.
 
 ### How Easy Mode works here
 
