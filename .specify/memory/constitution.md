@@ -1,50 +1,33 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Store Council Constitution
+
+The enduring principles for the Store Council platform. Specs, plans, and code must comply; `/speckit-analyze` and `/speckit-checklist` check against these. Amendments require updating this file in the same change.
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Read-Only by Default; Writes are Owner-Gated and Non-Destructive
+The platform observes and advises. Store reads use a GET-only allowlist; store writes exist only behind the owner's explicit write mode (`read_only` default, `confirm`, or `auto`), go through a separate allowlist that contains **no DELETE**, are journaled, and are never performed silently. An agent must never claim to have changed the store unless a write actually succeeded.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. OpenRouter is the Sole LLM Provider
+Every LLM transaction routes through OpenRouter. No direct provider SDKs. `settings.provider` is coerced to `"openrouter"`. This keeps billing and model choice in one place.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Single Storage Abstraction
+All persistent state goes through `JsonStore` (atomic, synchronous `update`). No ad-hoc files, no hidden globals. This is what makes the future Postgres/multi-tenant swap a single seam (`docs/saas/`).
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Strict Tenancy & Panel Separation
+Merchant auth and central (platform-owner) auth are independent and non-interchangeable. A locked tenant is suspended (402) on merchant routes but can still authenticate to see the lock state. The General Manager is always enabled and always read-only.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Provider-Neutral, Real, Tangible Features
+Tools are defined once and consumed by one agent loop. Every shipped feature is fully wired and working end to end — no placeholder UI, dead endpoints, or stubbed logic presented as complete. "Done" means verified.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Arabic-First, Merchant-Empowering
+The merchant controls every aspect from the dashboard (ideally embedded inside Salla) without touching code. UX is Arabic-first with English support. Advice is concrete, numeric, and grounded in the store's own data, with step-by-step dashboard instructions.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## Engineering Workflow
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
-
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Spec-first via Spec Kit is mandatory for non-trivial changes: constitution → specify → clarify → plan → tasks → checklist → analyze → implement. The Karpathy coding guidelines in `CLAUDE.md` (think before coding, simplicity, surgical changes, goal-driven verification) govern implementation. Verification is manual and required: `typecheck`, `build`, `node --check` on SPAs, and a runtime smoke test before claiming completion.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes ad-hoc preferences. Any change that conflicts with a principle must either comply or amend the principle here in the same change, with the rationale recorded in the feature's `plan.md`. The invariants here are mirrored in `CLAUDE.md` §2 — keep both in sync.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-06-11 | **Last Amended**: 2026-06-11

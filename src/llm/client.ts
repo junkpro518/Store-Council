@@ -1,29 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
-import {
-  anthropicKey,
-  openRouterKey,
-  getSettings,
-} from "../settings/settings.js";
+import { openRouterKey, getSettings } from "../settings/settings.js";
 
 /**
- * Anthropic client built from current settings (the owner can change the API
- * key from the dashboard at any time, so construct lazily per use).
+ * LLM access — the platform routes ALL transactions through OpenRouter
+ * (OpenAI-compatible chat-completions), giving one account, one bill, and
+ * access to any tool-calling model on openrouter.ai/models.
  */
-export function llm(): Anthropic {
-  const apiKey = anthropicKey();
-  if (!apiKey) {
-    throw new Error(
-      "No Anthropic API key configured. Add it in Settings (الإعدادات) on the dashboard."
-    );
-  }
-  return new Anthropic({ apiKey });
-}
-
-export function modelId(): string {
-  return getSettings().model || "claude-opus-4-8";
-}
-
-// ---------- OpenRouter (alternative provider, OpenAI-compatible) ----------
 
 export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
@@ -79,27 +60,15 @@ export async function structuredJson<T>(
   name: string,
   maxTokens = 8000
 ): Promise<T> {
-  let text: string | undefined;
-  if (getSettings().provider === "openrouter") {
-    const data = await openRouterChat({
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name, strict: true, schema },
-      },
-    });
-    text = data.choices?.[0]?.message?.content ?? undefined;
-  } else {
-    const response = await llm().messages.create({
-      model: modelId(),
-      max_tokens: maxTokens,
-      output_config: { format: { type: "json_schema", schema } },
-      messages: [{ role: "user", content: prompt }],
-    });
-    const block = response.content.find((b) => b.type === "text");
-    text = block && block.type === "text" ? block.text : undefined;
-  }
+  const data = await openRouterChat({
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: prompt }],
+    response_format: {
+      type: "json_schema",
+      json_schema: { name, strict: true, schema },
+    },
+  });
+  const text = data.choices?.[0]?.message?.content ?? undefined;
   if (!text) throw new Error("Empty structured response");
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
   return JSON.parse(cleaned) as T;

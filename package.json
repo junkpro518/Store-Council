@@ -1,7 +1,7 @@
 {
-  "name": "salla-store-council",
+  "name": "store-council",
   "version": "0.1.0",
-  "description": "Multi-agent AI platform that connects read-only to a Salla store, analyzes it daily, and lets the owner chat with 14 specialist AI department managers.",
+  "description": "Store Council — a multi-agent AI platform that connects read-only to a Salla store, analyzes it daily, and lets the merchant chat with 15 specialist AI department managers. Runs entirely on OpenRouter.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
@@ -12,7 +12,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^4.21.2",
     "node-cron": "^3.0.3",

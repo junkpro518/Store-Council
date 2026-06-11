@@ -16,8 +16,10 @@ import { metricsHistory } from "../pipeline/metrics.js";
  * who live inside a general AI chat talk to THEIR OWN council from there —
  * with its memory, specialists, playbooks, and daily reports behind it.
  *
- * Everything here is read-only against the store; the only mutation is
- * action-status tracking, which touches platform data, never the store.
+ * Everything here is read-only against the store: agents invoked over MCP are
+ * forced into read-only mode (forceReadOnly), so an external client can never
+ * drive a store write even if a manager is configured for confirm/auto. The
+ * only mutation is action-status tracking, which touches platform data.
  */
 
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -56,7 +58,7 @@ export function buildCouncilMcpServer(): McpServer {
       const agent = effectiveAgent(manager_id);
       if (!agent) return textResult(`No manager "${manager_id}". Use list_managers.`);
       if (!agent.enabled) return textResult(`${agent.name} is disabled by the store owner.`);
-      return textResult(await runAgent(manager_id, question));
+      return textResult(await runAgent(manager_id, question, 0, [], { forceReadOnly: true }));
     }
   );
 

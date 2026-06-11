@@ -5,7 +5,7 @@ Everything in Store Council is managed from the dashboard in your browser. You n
 ## البدء السريع (Quick start in Arabic)
 
 1. افتح رابط المنصة في المتصفح، وعند أول تشغيل اختر **كلمة مرور المالك** (٨ أحرف على الأقل).
-2. من **الإعدادات → الذكاء الاصطناعي**: اختر المزوّد (Anthropic أو OpenRouter) وألصق مفتاح الـ API.
+2. من **الإعدادات → الذكاء الاصطناعي**: ألصق مفتاح OpenRouter (openrouter.ai/keys) واختر النموذج.
 3. من **الإعدادات → ربط متجر سلة**: أدخل بيانات تطبيقك من بوابة شركاء سلة ثم اضغط **ربط المتجر**. (إذا كان التطبيق منشوراً في متجر تطبيقات سلة، يتم الربط تلقائياً عند التثبيت.)
 4. من **لوحة المتابعة** اضغط **تشغيل التحليل الآن** لأول تقرير، أو انتظر الموعد اليومي (الافتراضي ٥ فجراً بتوقيت الرياض).
 5. تحدث مع أي مدير من صفحة **تحدث مع المدراء** — بالعربية أو الإنجليزية.
@@ -15,9 +15,7 @@ Everything in Store Council is managed from the dashboard in your browser. You n
 ## First-run setup
 
 1. **Owner password** — the first screen asks you to create it (min 8 characters). Keep it safe; it protects your store data and API keys. You can change it later in *Settings → Security* (changing it signs out all devices).
-2. **AI provider** (*Settings → AI*):
-   - **Anthropic** (recommended) — paste a key from console.anthropic.com and pick a model (Opus 4.8 is the strongest; Sonnet is cheaper).
-   - **OpenRouter** — paste a key from openrouter.ai/keys and type any tool-calling model id from openrouter.ai/models (e.g. `anthropic/claude-sonnet-4.5`). One key, many models.
+2. **AI key** (*Settings → AI*) — the platform runs on **OpenRouter**: paste a key from openrouter.ai/keys and type any tool-calling model id from openrouter.ai/models (e.g. `openai/gpt-4o` or `anthropic/claude-sonnet-4.5`). One key, every model, one bill.
 3. **Connect your store** (*Settings → Salla*):
    - Installed from the **Salla App Store**? Connection happens automatically the moment you install — nothing to do.
    - Otherwise: create an app at salla.partners with **read-only scopes**, set its callback URL to the one shown in Settings, paste Client ID/Secret, click **Connect store**.

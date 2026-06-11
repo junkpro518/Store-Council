@@ -73,12 +73,9 @@ Each agent's prompt now also carries **critical rules** — red lines it never c
 
 ### Runner (`src/agents/runner.ts`)
 
-`runAgent(agentId, question, depth, history)` builds the system prompt + tools and executes an agentic loop on the **selected provider**:
+`runAgent(agentId, question, depth, history, opts)` builds the system prompt + tools and executes an agentic loop. The platform runs **entirely on OpenRouter**: an OpenAI-compatible `chat/completions` function-calling loop against any tool-capable model on openrouter.ai (20-iteration cap, bounded retries on transient errors, empty-reply guards). `opts.forceReadOnly` lets external callers (the MCP server) run an agent without any store-write capability.
 
-- **Anthropic** (default): Messages API manual loop — adaptive thinking, prompt-cached system block, `tool_use`/`tool_result` rounds, `pause_turn` handling, 20-iteration cap.
-- **OpenRouter**: OpenAI-compatible `chat/completions` loop with function calling against any tool-capable model on openrouter.ai.
-
-The system prompt (`src/agents/prompts.ts`) is deterministic for a given settings state (no timestamps), so Anthropic prompt caching works. It embeds: persona, focus areas, the owner's store context, the owner's custom instructions, the enabled-colleague roster, the read-only contract, the four-part recommendation format (What / Why with numbers / How in the Salla dashboard / Expected impact), and the language policy.
+The system prompt (`src/agents/prompts.ts`) is deterministic for a given settings state (no timestamps). It embeds: persona, focus areas, critical rules, the owner's store context and custom instructions, accumulated memory, the playbook and knowledge-base indexes, the enabled-colleague roster, the discussion principles, the read-only/write contract, the four-part recommendation format (What / Why with numbers / How in the Salla dashboard / Expected impact), and the language policy.
 
 ### Daily pipeline (`src/pipeline/daily.ts`)
 
@@ -112,4 +109,4 @@ Failures in one agent never abort the run — they are recorded as `(analysis fa
 
 ## Runtime configuration
 
-Everything the owner can change lives in `src/settings/settings.ts` and is editable from the dashboard: AI provider (Anthropic/OpenRouter) + keys + models, language policy, store context, schedule (cron + timezone, applied live), concurrency, report depth, Salla credentials + webhook secret, per-agent overrides. Environment variables are only initial defaults; `PORT` and `DATA_DIR` are the only server-level settings.
+Everything the owner can change lives in `src/settings/settings.ts` and is editable from the dashboard: the OpenRouter API key + model, language policy, store context, write mode, schedule (cron + timezone, applied live), concurrency, report depth, Salla credentials + webhook secret, per-agent overrides. `settings.provider` is coerced to `"openrouter"` — there is no other provider. Environment variables are only initial defaults; `PORT` and `DATA_DIR` are the only server-level settings.

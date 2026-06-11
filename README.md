@@ -2,7 +2,7 @@
 
 **An AI management team for a Salla store.** The platform connects to one Salla store in strict **read-only** mode, analyzes every aspect of it **automatically every day**, and delivers expert recommendations with **step-by-step Salla-dashboard implementation instructions**. The owner can **chat directly with any of the 14 specialist AI department managers**, who also **consult each other** when a finding crosses departments.
 
-Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal. Agents run on **Anthropic** (default) or **OpenRouter** — the owner picks the provider and model in Settings.
+Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal. Agents run entirely on **OpenRouter** — one API key for access to any tool-calling model; the owner sets the key and model in Settings.
 
 > **By default the platform never modifies the store** — it observes, analyzes, recommends, and explains. The owner can optionally grant edit permissions per manager or globally, in three levels: **read only** (default), **edit after my confirmation** (changes queue on the dashboard for approval), or **edit without confirmation**. Even then, writes are restricted to a conservative allowlist (products, coupons, offers, categories — never deletions), every change is journaled, and rejections teach the proposing manager not to repeat them.
 
@@ -25,7 +25,7 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 - **Daily report** — every morning the full council analyzes the store in parallel; the General Manager consolidates everything into an executive summary plus a ranked, trackable action list. Each action carries *What / Why (with the store's own numbers) / How (exact dashboard steps) / Expected impact*, and can be marked **done** or **dismissed** from the dashboard.
 - **Chat with every manager** — persistent, per-manager conversations in Arabic or English. Managers pull live store data while answering.
 - **Full control without code** — from the dashboard the owner can:
-  - set/change the Anthropic API key, model, and reply language,
+  - set/change the OpenRouter API key, model, and reply language,
   - write a free-text store profile every manager reads,
   - rename any manager, give it standing instructions, replace its focus areas, or disable it entirely,
   - change the daily schedule (cron + timezone), report depth, and parallelism,
@@ -53,7 +53,7 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 | `geo` | GEO Manager | Generative Engine Optimization — being the answer ChatGPT/Claude/Perplexity give |
 | `growth` | Growth Strategist | KPIs, assortment gaps, strategic priorities |
 
-Each agent has an expert persona **with critical rules** (red lines it never crosses) and seven tools: department-scoped `salla_read`, `consult_agent` (pairwise teamwork), `council_board` (the team's shared blackboard during daily sessions), `read_playbook` (domain field guides in SKILL.md format, loaded on demand), `save_memory`, `metrics_history` (the store's real KPI time series), and `calculate`. The agentic loop runs on the owner-selected provider: **Anthropic** (Claude Opus 4.8 with adaptive thinking, default) or **OpenRouter** (any tool-calling model).
+Each agent has an expert persona **with critical rules** (red lines it never crosses) and a suite of tools: department-scoped `salla_read`, `consult_agent` (pairwise teamwork), `council_board` (the team's shared blackboard during daily sessions), `read_playbook` (domain field guides in SKILL.md format, loaded on demand), `knowledge_base` (owner-provided documents), `ask_owner` (discussion inbox), `save_memory`, `metrics_history` (the store's real KPI time series), and `calculate`. The agentic loop runs entirely on **OpenRouter** — any tool-calling model the owner selects.
 
 **Accountability and reach.** Implemented recommendations get their real impact **measured automatically ~14 days later** (the owning manager re-pulls the metric it cited) and land in the dashboard's **achievement ledger** — receipts, not just advice. And the platform is an **MCP server** (`/mcp`): merchants can talk to *their own council* — with its memory, specialists, and reports — from inside Claude, ChatGPT, or any MCP-capable client, using the integration token from Settings.
 
@@ -93,7 +93,7 @@ npm run build && npm start
 Then open `http://localhost:3000` and follow the dashboard:
 
 1. **First run** — set the owner password.
-2. **Settings → AI** — paste your Anthropic API key (console.anthropic.com).
+2. **Settings → AI** — paste your OpenRouter API key (openrouter.ai/keys) and pick a model.
 3. **Settings → Salla** — create an app in the [Salla Partners portal](https://salla.partners) with **read-only scopes**, set its callback URL to `http://<your-host>:3000/auth/salla/callback`, paste the Client ID/Secret, and click **Connect store**.
 4. **Dashboard → Run analysis now** for the first report, or wait for the daily schedule (default 05:00 Asia/Riyadh).
 
@@ -133,7 +133,7 @@ The platform implements everything Salla requires from a listed app:
 4. Set the OAuth callback URL to `https://<your-host>/auth/salla/callback` (used for non-App-Store installs).
 5. Deploy behind **HTTPS** with a stable domain before submitting for review.
 
-Use *Settings → System check* to verify the Anthropic key, Salla connectivity, and webhook secret before submission.
+Use *Settings → System check* to verify the OpenRouter key, Salla connectivity, and webhook secret before submission.
 
 ## Read-only enforcement (three layers)
 
@@ -152,7 +152,7 @@ src/
   agents/runner.ts        # Claude tool-runner loop per agent
   auth/owner.ts           # owner password + session tokens (scrypt)
   chat/chatStore.ts       # per-agent chat history
-  llm/client.ts           # Anthropic + OpenRouter clients from runtime settings
+  llm/client.ts           # OpenRouter client + agent-loop helpers
   pipeline/daily.ts       # parallel analysis + GM consolidation + action extraction
   salla/auth.ts           # OAuth + Easy Mode tokens (authorize, exchange, refresh)
   salla/client.ts         # GET-only allowlisted Salla Admin API client

@@ -44,9 +44,8 @@ Settings shape:
 
 ```json
 {
-  "provider": "anthropic | openrouter",
-  "anthropicApiKey": "", "model": "claude-opus-4-8",
-  "openRouter": { "apiKey": "", "model": "anthropic/claude-sonnet-4.5" },
+  "provider": "openrouter",
+  "openRouter": { "apiKey": "", "model": "openai/gpt-4o" },
   "language": "ar | en | auto",
   "storeContext": "",
   "dailyEnabled": true, "dailyCron": "0 5 * * *", "timezone": "Asia/Riyadh",

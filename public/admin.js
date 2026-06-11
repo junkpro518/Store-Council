@@ -78,6 +78,12 @@ async function panelView() {
     </div>
 
     <div class="card">
+      <h2 style="margin-top:0">Salla App URL (merchant controls in-Salla)</h2>
+      <p class="sub">Paste this as the app's <strong>App URL</strong> in the Salla Partners portal. The merchant then runs and controls Store Council entirely inside their Salla dashboard — no external site. ${o.embedUrl ? "" : "(Available once the merchant completes first-run setup.)"}</p>
+      ${o.embedUrl ? `<input type="text" readonly value="${esc(o.embedUrl)}" onclick="this.select()" />` : ""}
+    </div>
+
+    <div class="card">
       <h2 style="margin-top:0">Tenant management</h2>
       <div class="row">
         <div>

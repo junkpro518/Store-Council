@@ -28,13 +28,12 @@ import {
   getSettings,
   updateSettings,
   setAgentOverride,
-  anthropicKey,
 } from "./settings/settings.js";
 import * as owner from "./auth/owner.js";
 import { verifySignature, handleWebhook, recentEvents } from "./salla/webhooks.js";
 import { getStoreInfo } from "./salla/storeInfo.js";
 import { connectionInfo } from "./salla/auth.js";
-import { llm, testOpenRouter } from "./llm/client.js";
+import { testOpenRouter } from "./llm/client.js";
 import { memories, forget } from "./agents/memory.js";
 import { curatorStatus, runCurator } from "./pipeline/curator.js";
 import { listDocs, addDoc, updateDoc, deleteDoc } from "./agents/knowledge.js";
@@ -51,6 +50,9 @@ import { sallaGet } from "./salla/client.js";
 
 const app = express();
 app.disable("x-powered-by");
+// Honor X-Forwarded-* from one reverse proxy (TLS terminator) so req.ip is the
+// real client for the login lockout, without trusting arbitrary upstream hops.
+app.set("trust proxy", 1);
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -137,10 +139,8 @@ app.get("/auth/status", (req, res) => {
     setup: owner.isSetup(),
     authenticated: owner.verifyToken(bearer(req)),
     storeConnected: isConnected(),
-    provider: getSettings().provider,
+    provider: "openrouter",
     aiConfigured: aiConfigured(),
-    // kept for backward compatibility with older dashboards
-    anthropicConfigured: Boolean(anthropicKey()),
   });
 });
 
@@ -198,7 +198,17 @@ app.post("/auth/change-password", requireAuth, (req, res) => {
 
 // ---------- Salla store connection ----------
 
-const pendingStates = new Set<string>();
+// OAuth CSRF states, expired after 10 minutes so the set can't grow unbounded.
+const pendingStates = new Map<string, number>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function consumeOAuthState(state: string): boolean {
+  const now = Date.now();
+  for (const [s, t] of pendingStates) if (now - t > OAUTH_STATE_TTL_MS) pendingStates.delete(s);
+  if (!pendingStates.has(state)) return false;
+  pendingStates.delete(state);
+  return true;
+}
 
 app.get("/auth/salla", (req, res) => {
   // Initiated from the dashboard with ?token= since it's a browser navigation.
@@ -208,7 +218,7 @@ app.get("/auth/salla", (req, res) => {
   }
   try {
     const state = crypto.randomBytes(16).toString("hex");
-    pendingStates.add(state);
+    pendingStates.set(state, Date.now());
     res.redirect(authorizeUrl(state));
   } catch (err) {
     res.status(400).send((err as Error).message);
@@ -217,7 +227,7 @@ app.get("/auth/salla", (req, res) => {
 
 app.get("/auth/salla/callback", async (req, res) => {
   const { code, state } = req.query as { code?: string; state?: string };
-  if (!code || !state || !pendingStates.delete(state)) {
+  if (!code || !state || !consumeOAuthState(state)) {
     res.status(400).send("Invalid OAuth callback");
     return;
   }
@@ -270,7 +280,7 @@ app.post("/webhooks/salla", (req, res) => {
     return;
   }
   try {
-    const action = handleWebhook(req.body ?? {});
+    const action = handleWebhook(req.body ?? {}, raw);
     console.log(`[webhook] ${req.body?.event}: ${action}`);
     res.json({ ok: true });
   } catch (err) {
@@ -304,19 +314,14 @@ app.get("/store/events", requireAuth, (_req, res) => {
 app.get("/diagnostics", requireAuth, async (_req, res) => {
   const settings = getSettings();
   const result = {
-    provider: settings.provider,
+    provider: "openrouter",
     ai: { ok: false, detail: "" },
     salla: { ok: false, detail: "" },
     webhookSecret: Boolean(settings.salla.webhookSecret),
     dailyEnabled: settings.dailyEnabled,
   };
   try {
-    if (settings.provider === "openrouter") {
-      result.ai = { ok: true, detail: await testOpenRouter() };
-    } else {
-      await llm().models.list({ limit: 1 });
-      result.ai = { ok: true, detail: "API key valid" };
-    }
+    result.ai = { ok: true, detail: await testOpenRouter() };
   } catch (err) {
     result.ai = { ok: false, detail: (err as Error).message };
   }
@@ -621,12 +626,17 @@ app.post("/admin/auth/logout", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/admin/overview", requireAdmin, async (_req, res) => {
+app.get("/admin/overview", requireAdmin, async (req, res) => {
   const reports = listReports();
   const allActions = reports.flatMap((r) => getReport(r.date)?.actions ?? []);
   const info = isConnected() ? await getStoreInfo() : null;
+  // The Salla App URL the operator pastes into the Partners portal so the
+  // merchant controls everything from inside the Salla dashboard. Only
+  // available once the merchant has set up (the embed mints their session).
+  const origin = `${req.protocol}://${req.get("host")}`;
   res.json({
     platform: platformState(),
+    embedUrl: owner.isSetup() ? `${origin}/embed?k=${owner.embedKey()}` : null,
     store: {
       connected: isConnected(),
       ...connectionInfo(),

@@ -22,11 +22,8 @@ export interface AgentOverride {
 }
 
 export interface PlatformSettings {
-  /** Which AI provider powers the agents. */
-  provider: "anthropic" | "openrouter";
-  /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env if empty. */
-  anthropicApiKey: string;
-  model: string;
+  /** Sole LLM provider. Kept as a field for forward-compatibility; coerced to "openrouter". */
+  provider: "openrouter";
   openRouter: {
     /** OpenRouter API key (openrouter.ai). Falls back to OPENROUTER_API_KEY env. */
     apiKey: string;
@@ -61,12 +58,12 @@ export interface PlatformSettings {
 }
 
 const defaults: PlatformSettings = {
-  provider: "anthropic",
-  anthropicApiKey: "",
-  model: "claude-opus-4-8",
+  // The platform routes ALL LLM transactions through OpenRouter — one account,
+  // one bill, any tool-calling model on openrouter.ai/models.
+  provider: "openrouter",
   openRouter: {
     apiKey: process.env.OPENROUTER_API_KEY ?? "",
-    model: "anthropic/claude-sonnet-4.5",
+    model: "openai/gpt-4o",
   },
   language: "auto",
   storeContext: "",
@@ -95,6 +92,8 @@ export function getSettings(): PlatformSettings {
   return {
     ...defaults,
     ...saved,
+    // OpenRouter is the sole LLM provider — never honor a stale "anthropic".
+    provider: "openrouter",
     salla: { ...defaults.salla, ...saved.salla },
     openRouter: { ...defaults.openRouter, ...saved.openRouter },
     agents: saved.agents ?? {},
@@ -115,7 +114,9 @@ export function updateSettings(
   next.analysisConcurrency = clampInt(next.analysisConcurrency, 1, 8, 4);
   next.topActionsCount = clampInt(next.topActionsCount, 3, 10, 5);
   if (!["ar", "en", "auto"].includes(next.language)) next.language = "auto";
-  if (!["anthropic", "openrouter"].includes(next.provider)) next.provider = "anthropic";
+  // The platform routes every LLM transaction through OpenRouter; the provider
+  // is coerced so no Anthropic-direct call can be made, even from an old file.
+  next.provider = "openrouter";
   if (!["read_only", "confirm", "auto"].includes(next.writeMode)) next.writeMode = "read_only";
   store.write(next);
   return next;
@@ -136,19 +137,13 @@ export function agentOverride(agentId: string): AgentOverride {
   return getSettings().agents[agentId] ?? { enabled: true };
 }
 
-export function anthropicKey(): string {
-  return getSettings().anthropicApiKey || process.env.ANTHROPIC_API_KEY || "";
-}
-
 export function openRouterKey(): string {
   return getSettings().openRouter.apiKey || process.env.OPENROUTER_API_KEY || "";
 }
 
-/** True when the currently selected provider has an API key configured. */
+/** True when the OpenRouter API key is configured. */
 export function aiConfigured(): boolean {
-  return getSettings().provider === "openrouter"
-    ? Boolean(openRouterKey())
-    : Boolean(anthropicKey());
+  return Boolean(openRouterKey());
 }
 
 function clampInt(v: unknown, min: number, max: number, dflt: number): number {
