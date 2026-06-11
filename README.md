@@ -93,6 +93,25 @@ No environment variables are required; `.env.example` lists optional server-leve
 | `POST` | `/reports/run` | Start an analysis now (async; poll `/reports/status`) |
 | `POST` | `/reports/:date/actions/:index` | Mark an action `done` / `dismissed` / `new` |
 
+## Salla App Store listing
+
+The platform implements everything Salla requires from a listed app:
+
+- **Webhook endpoint** — `POST /webhooks/salla`, with **HMAC-SHA256 signature verification** (`x-salla-signature` over the raw body). Unsigned or invalid deliveries are rejected with 401.
+- **Easy Mode authorization** — when a merchant installs the app from the App Store, Salla pushes tokens via the `app.store.authorize` event; the platform stores them and connects automatically (no OAuth redirect needed). Manual OAuth remains available for development/custom installs.
+- **Lifecycle events** — `app.installed` is logged; `app.uninstalled` disconnects the store and clears the cached identity immediately.
+- **Store events feed** — `order.created`, `product.updated`, `review.added`, `abandoned.cart`, etc. are verified, summarized, and shown on the dashboard (last 200 kept).
+
+**Listing checklist (Partners portal → your app):**
+
+1. Set the **Webhook URL** to `https://<your-host>/webhooks/salla` and choose the **signature** security strategy; copy the secret into *Dashboard → Settings → Webhook secret*.
+2. Subscribe the app to at least: `app.store.authorize`, `app.installed`, `app.uninstalled` (plus any store events you want in the feed).
+3. Request **read-only scopes only** — the app never writes to stores, which simplifies review.
+4. Set the OAuth callback URL to `https://<your-host>/auth/salla/callback` (used for non-App-Store installs).
+5. Deploy behind **HTTPS** with a stable domain before submitting for review.
+
+Use *Settings → System check* to verify the Anthropic key, Salla connectivity, and webhook secret before submission.
+
 ## Read-only enforcement (three layers)
 
 1. **OAuth scope** — register the Salla app with read-only scopes.
@@ -112,8 +131,10 @@ src/
   chat/chatStore.ts       # per-agent chat history
   llm/client.ts           # Anthropic client from runtime settings
   pipeline/daily.ts       # parallel analysis + GM consolidation + action extraction
-  salla/auth.ts           # OAuth (authorize, exchange, refresh, disconnect)
+  salla/auth.ts           # OAuth + Easy Mode tokens (authorize, exchange, refresh)
   salla/client.ts         # GET-only allowlisted Salla Admin API client
+  salla/webhooks.ts       # signature verification, lifecycle + event feed
+  salla/storeInfo.ts      # cached store identity for the dashboard header
   server.ts               # Express API + dashboard hosting + cron scheduler
   settings/settings.ts    # runtime settings (everything the owner can change)
   store/jsonStore.ts      # file-backed storage under DATA_DIR

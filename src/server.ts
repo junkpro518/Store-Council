@@ -31,9 +31,29 @@ import {
   anthropicKey,
 } from "./settings/settings.js";
 import * as owner from "./auth/owner.js";
+import { verifySignature, handleWebhook, recentEvents } from "./salla/webhooks.js";
+import { getStoreInfo } from "./salla/storeInfo.js";
+import { connectionInfo } from "./salla/auth.js";
+import { llm } from "./llm/client.js";
+import { sallaGet } from "./salla/client.js";
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+app.disable("x-powered-by");
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+app.use(
+  express.json({
+    limit: "1mb",
+    // Keep the raw body so Salla webhook signatures can be verified.
+    verify: (req, _res, buf) => {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  })
+);
 
 const publicDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -86,12 +106,29 @@ app.post("/auth/setup", (req, res) => {
   }
 });
 
+// Brute-force protection: lock login for 10 minutes after 5 failures per IP.
+const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
+
 app.post("/auth/login", (req, res) => {
+  const ip = req.ip ?? "unknown";
+  const entry = loginFailures.get(ip);
+  if (entry && entry.lockedUntil > Date.now()) {
+    res.status(429).json({
+      error: "Too many failed attempts. Try again in a few minutes.",
+    });
+    return;
+  }
   const token = owner.login(String(req.body?.password ?? ""));
   if (!token) {
+    const count = (entry?.count ?? 0) + 1;
+    loginFailures.set(ip, {
+      count,
+      lockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0,
+    });
     res.status(401).json({ error: "Wrong password" });
     return;
   }
+  loginFailures.delete(ip);
   res.json({ token });
 });
 
@@ -148,6 +185,70 @@ app.get("/auth/salla/callback", async (req, res) => {
 app.post("/salla/disconnect", requireAuth, (_req, res) => {
   disconnectStore();
   res.json({ ok: true });
+});
+
+// ---------- Salla webhooks (required for App Store listing) ----------
+
+app.post("/webhooks/salla", (req, res) => {
+  const raw = (req as express.Request & { rawBody?: Buffer }).rawBody;
+  const signature = req.header("x-salla-signature");
+  if (!raw || !verifySignature(raw, signature)) {
+    res.status(401).json({ error: "Invalid webhook signature" });
+    return;
+  }
+  try {
+    const action = handleWebhook(req.body ?? {});
+    console.log(`[webhook] ${req.body?.event}: ${action}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[webhook] handler error:", err);
+    res.status(500).json({ error: "Webhook handling failed" });
+  }
+});
+
+// ---------- Store identity & events ----------
+
+app.get("/store/summary", requireAuth, async (req, res) => {
+  const connected = isConnected();
+  const info = connected
+    ? await getStoreInfo(req.query.refresh === "1")
+    : null;
+  res.json({
+    connected,
+    ...connectionInfo(),
+    name: info?.name ?? "",
+    domain: info?.domain ?? "",
+    plan: info?.plan ?? "",
+  });
+});
+
+app.get("/store/events", requireAuth, (_req, res) => {
+  res.json(recentEvents());
+});
+
+// ---------- Diagnostics (owner-facing health checks) ----------
+
+app.get("/diagnostics", requireAuth, async (_req, res) => {
+  const result = {
+    anthropic: { ok: false, detail: "" },
+    salla: { ok: false, detail: "" },
+    webhookSecret: Boolean(getSettings().salla.webhookSecret),
+    dailyEnabled: getSettings().dailyEnabled,
+  };
+  try {
+    await llm().models.list({ limit: 1 });
+    result.anthropic = { ok: true, detail: "API key valid" };
+  } catch (err) {
+    result.anthropic = { ok: false, detail: (err as Error).message };
+  }
+  try {
+    if (!isConnected()) throw new Error("Store not connected");
+    const info = (await sallaGet("store/info")) as { data?: { name?: string } };
+    result.salla = { ok: true, detail: info.data?.name ?? "Connected" };
+  } catch (err) {
+    result.salla = { ok: false, detail: (err as Error).message };
+  }
+  res.json(result);
 });
 
 // ---------- Settings ----------

@@ -58,7 +58,8 @@ function isAllowed(path: string): boolean {
 
 export async function sallaGet(
   path: string,
-  params: Record<string, string | number> = {}
+  params: Record<string, string | number> = {},
+  attempt = 0
 ): Promise<unknown> {
   const clean = path.replace(/^\/+|\/+$/g, "");
   if (!isAllowed(clean)) {
@@ -75,11 +76,11 @@ export async function sallaGet(
     method: "GET",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
-  if (res.status === 429) {
-    // Respect Salla rate limits with a single courteous retry
-    const wait = Number(res.headers.get("retry-after") ?? 2);
+  if (res.status === 429 && attempt < 3) {
+    // Respect Salla rate limits with bounded, header-driven backoff
+    const wait = Math.min(Number(res.headers.get("retry-after") ?? 2), 30);
     await new Promise((r) => setTimeout(r, wait * 1000));
-    return sallaGet(clean, params);
+    return sallaGet(clean, params, attempt + 1);
   }
   if (!res.ok) {
     throw new Error(`Salla API ${res.status} on ${clean}: ${await res.text()}`);

@@ -90,6 +90,18 @@ const STRINGS = {
   viewReport: { ar: "عرض", en: "View" },
   date: { ar: "التاريخ", en: "Date" },
   needsKey: { ar: "أضف مفتاح Anthropic API من الإعدادات لتشغيل المدراء.", en: "Add your Anthropic API key in Settings to power the managers." },
+  recentEvents: { ar: "آخر أحداث المتجر", en: "Recent store events" },
+  noEvents: { ar: "لا توجد أحداث بعد. تصل الأحداث تلقائياً عبر Webhooks بعد ضبطها في بوابة شركاء سلة.", en: "No events yet. Events arrive automatically via webhooks once configured in the Salla Partners portal." },
+  webhookSecret: { ar: "سر التوقيع (Webhook Secret)", en: "Webhook secret" },
+  webhookSecretHint: { ar: "من إعدادات تطبيقك في بوابة الشركاء — يُستخدم للتحقق من توقيع الأحداث.", en: "From your app settings in the Partners portal — used to verify event signatures." },
+  webhookUrl: { ar: "رابط الـ Webhook (ضعه في بوابة الشركاء)", en: "Webhook URL (set it in the Partners portal)" },
+  easyModeNote: { ar: "عند نشر التطبيق في متجر تطبيقات سلة، يصل تفويض المتجر تلقائياً عبر حدث app.store.authorize — لا حاجة لزر الربط.", en: "When listed on the Salla App Store, store authorization arrives automatically via the app.store.authorize event — no connect button needed." },
+  diagnostics: { ar: "فحص النظام", en: "System check" },
+  runChecks: { ar: "تشغيل الفحص", en: "Run checks" },
+  checking: { ar: "جارٍ الفحص…", en: "Checking…" },
+  connectedVia: { ar: "مربوط عبر", en: "Connected via" },
+  viaAppStore: { ar: "متجر تطبيقات سلة", en: "Salla App Store" },
+  viaOauth: { ar: "ربط يدوي (OAuth)", en: "Manual OAuth" },
 };
 
 function t(key) {
@@ -336,7 +348,7 @@ function reportHtml(report) {
 }
 
 async function dashboardView() {
-  const main = shell("dashboard", `<h1>${t("dashboard")}</h1><p class="sub">${t("tagline")}</p><div id="body">…</div>`);
+  const main = shell("dashboard", `<h1>${t("dashboard")}</h1><p class="sub" id="storeLine">${t("tagline")}</p><div id="body">…</div>`);
   const body = main.querySelector("#body");
 
   const status = await api("/auth/status");
@@ -347,6 +359,17 @@ async function dashboardView() {
   let report = null;
   try { report = await api("/reports/latest"); } catch {}
   const { running } = await api("/reports/status");
+  let events = [];
+  try { events = await api("/store/events"); } catch {}
+
+  if (status.storeConnected) {
+    api("/store/summary").then((s) => {
+      if (s.name) {
+        document.getElementById("storeLine").textContent =
+          `${s.name}${s.domain ? " — " + s.domain : ""}`;
+      }
+    }).catch(() => {});
+  }
 
   const render = (r) => {
     report = r;
@@ -357,7 +380,20 @@ async function dashboardView() {
           ${running ? t("running") : t("runNow")}
         </button>
       </div>
-      ${report ? `<h2>${t("latestReport")}</h2>${reportHtml(report)}` : `<div class="card"><p class="sub">${t("noReports")}</p></div>`}`;
+      ${report ? `<h2>${t("latestReport")}</h2>${reportHtml(report)}` : `<div class="card"><p class="sub">${t("noReports")}</p></div>`}
+      <div class="card">
+        <h2 style="margin-top:0">${t("recentEvents")}</h2>
+        ${events.length
+          ? events.slice(0, 12).map((e) => `
+            <div class="action-item">
+              <div class="head">
+                <span class="badge">${esc(e.event)}</span>
+                <h3 style="font-weight:400;font-size:0.92rem">${esc(e.summary)}</h3>
+                <span class="sub" style="font-size:0.78rem">${esc(e.receivedAt.slice(0, 16).replace("T", " "))}</span>
+              </div>
+            </div>`).join("")
+          : `<p class="sub">${t("noEvents")}</p>`}
+      </div>`;
     if (report) wireActionButtons(body, report, render);
     const runBtn = body.querySelector("#runBtn");
     if (runBtn) runBtn.onclick = async () => {
@@ -549,6 +585,9 @@ async function settingsView() {
   const body = main.querySelector("#body");
   const s = await api("/settings");
   const status = await api("/auth/status");
+  let summary = { connected: false, mode: "", name: "" };
+  try { summary = await api("/store/summary"); } catch {}
+  const webhookUrl = `${location.origin}/webhooks/salla`;
 
   body.innerHTML = `
   <div class="card">
@@ -606,6 +645,7 @@ async function settingsView() {
   <div class="card">
     <h2 style="margin-top:0">${t("sallaSection")}
       <span class="badge ${status.storeConnected ? "" : "off"}">${status.storeConnected ? t("connected") : t("notConnected")}</span>
+      ${summary.connected && summary.mode ? `<span class="badge">${t("connectedVia")}: ${summary.mode === "easy" ? t("viaAppStore") : t("viaOauth")}</span>` : ""}
     </h2>
     <p class="sub">${t("sallaHint")}</p>
     <div class="row">
@@ -614,9 +654,22 @@ async function settingsView() {
     </div>
     <label>Callback URL</label>
     <input type="text" id="sRedirect" value="${esc(s.salla.redirectUri)}" />
+    <label>${t("webhookSecret")} <span class="hint">— ${t("webhookSecretHint")}</span></label>
+    <input type="password" id="sWebhookSecret" value="${esc(s.salla.webhookSecret)}" />
+    <label>${t("webhookUrl")}</label>
+    <input type="text" readonly value="${esc(webhookUrl)}" onclick="this.select()" />
+    <p class="sub" style="margin-top:8px">${t("easyModeNote")}</p>
     <div class="row" style="margin-top:14px">
       <a class="btn fit" id="connectBtn" href="/auth/salla?token=${encodeURIComponent(state.token)}">${t("connectStore")}</a>
       ${status.storeConnected ? `<button class="ghost danger fit" id="disconnectBtn">${t("disconnectStore")}</button>` : ""}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">${t("diagnostics")}</h2>
+    <div class="row">
+      <button class="ghost fit" id="diagBtn">${t("runChecks")}</button>
+      <div id="diagOut"></div>
     </div>
   </div>
 
@@ -655,12 +708,27 @@ async function settingsView() {
             clientId: body.querySelector("#sClientId").value.trim(),
             clientSecret: body.querySelector("#sClientSecret").value.trim(),
             redirectUri: body.querySelector("#sRedirect").value.trim(),
+            webhookSecret: body.querySelector("#sWebhookSecret").value.trim(),
           },
         }),
       });
       notice(body.querySelector("#saveMsg"), "ok", t("saved"));
     } catch (err) {
       notice(body.querySelector("#saveMsg"), "err", err.message);
+    }
+  };
+
+  body.querySelector("#diagBtn").onclick = async () => {
+    const out = body.querySelector("#diagOut");
+    out.innerHTML = `<span class="sub">${t("checking")}</span>`;
+    try {
+      const d = await api("/diagnostics");
+      out.innerHTML = `
+        <span class="badge ${d.anthropic.ok ? "" : "off"}">Anthropic: ${esc(d.anthropic.ok ? "✓" : d.anthropic.detail)}</span>
+        <span class="badge ${d.salla.ok ? "" : "off"}">Salla: ${esc(d.salla.ok ? "✓ " + d.salla.detail : d.salla.detail)}</span>
+        <span class="badge ${d.webhookSecret ? "" : "warn"}">Webhook secret: ${d.webhookSecret ? "✓" : "—"}</span>`;
+    } catch (err) {
+      out.innerHTML = `<span class="badge off">${esc(err.message)}</span>`;
     }
   };
 

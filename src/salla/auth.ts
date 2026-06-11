@@ -6,9 +6,36 @@ export interface SallaTokens {
   access_token: string;
   refresh_token: string;
   expires_at: number; // epoch ms
+  /** How the store was connected: OAuth redirect or App Store webhook. */
+  mode?: "oauth" | "easy";
+  merchantId?: number;
 }
 
 const tokenStore = new JsonStore<SallaTokens | null>("salla-tokens", null);
+
+/**
+ * "Easy Mode" — Salla App Store installs push tokens to our webhook via the
+ * app.store.authorize event instead of an OAuth redirect. Required for
+ * App Store listing.
+ */
+export function saveTokensFromWebhook(
+  data: {
+    access_token: string;
+    refresh_token: string;
+    expires?: number; // unix seconds
+  },
+  merchantId?: number
+): void {
+  tokenStore.write({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at: data.expires
+      ? data.expires * 1000
+      : Date.now() + 14 * 24 * 60 * 60 * 1000,
+    mode: "easy",
+    merchantId,
+  });
+}
 
 function sallaCreds() {
   const s = getSettings().salla;
@@ -52,10 +79,13 @@ async function tokenRequest(body: Record<string, string>): Promise<SallaTokens> 
     refresh_token: string;
     expires_in: number;
   };
+  const previous = tokenStore.read();
   const tokens: SallaTokens = {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
     expires_at: Date.now() + data.expires_in * 1000,
+    mode: previous?.mode ?? "oauth",
+    merchantId: previous?.merchantId,
   };
   tokenStore.write(tokens);
   return tokens;
@@ -86,6 +116,11 @@ export async function getAccessToken(): Promise<string> {
 
 export function isConnected(): boolean {
   return tokenStore.read() !== null;
+}
+
+export function connectionInfo(): { mode?: "oauth" | "easy"; merchantId?: number } {
+  const t = tokenStore.read();
+  return t ? { mode: t.mode, merchantId: t.merchantId } : {};
 }
 
 export function disconnectStore(): void {

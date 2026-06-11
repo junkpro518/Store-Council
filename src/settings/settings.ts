@@ -35,6 +35,8 @@ export interface PlatformSettings {
     clientId: string;
     clientSecret: string;
     redirectUri: string;
+    /** Webhook signing secret from the Salla Partners portal (HMAC-SHA256). */
+    webhookSecret: string;
   };
   agents: Record<string, AgentOverride>;
 }
@@ -55,6 +57,7 @@ const defaults: PlatformSettings = {
     redirectUri:
       process.env.SALLA_REDIRECT_URI ??
       "http://localhost:3000/auth/salla/callback",
+    webhookSecret: process.env.SALLA_WEBHOOK_SECRET ?? "",
   },
   agents: {},
 };
