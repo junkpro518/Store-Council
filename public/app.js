@@ -112,6 +112,16 @@ const STRINGS = {
   memoryTitle: { ar: "ذاكرة المدير (الدروس والملاحظات المتراكمة)", en: "Manager's memory (accumulated lessons & feedback)" },
   noMemories: { ar: "لا توجد ذكريات بعد — تتراكم تلقائياً من التحليلات وتفاعلك مع التوصيات.", en: "No memories yet — they accumulate automatically from analyses and your responses to recommendations." },
   forget: { ar: "حذف", en: "Forget" },
+  achievements: { ar: "سجل الإنجاز", en: "Achievement ledger" },
+  achievementsHint: { ar: "كل توصية نفّذتها — مع الأثر المقاس بعد أسبوعين من بيانات متجرك الفعلية.", en: "Every recommendation you implemented — with its impact measured after two weeks from your store's real data." },
+  noAchievements: { ar: "لا إنجازات بعد — علّم التوصيات بـ«تم التنفيذ» وسيقيس المجلس أثرها تلقائياً.", en: "Nothing yet — mark recommendations as done and the council will measure their impact automatically." },
+  measuredImpact: { ar: "الأثر المقاس", en: "Measured impact" },
+  awaitingMeasure: { ar: "القياس بعد ~١٤ يوماً من التنفيذ", en: "Measured ~14 days after implementation" },
+  mcpSection: { ar: "اربط المجلس بـ Claude / ChatGPT (MCP)", en: "Connect the council to Claude / ChatGPT (MCP)" },
+  mcpHint: { ar: "أضف هذا الرابط والمفتاح كـ Custom Connector في Claude أو ChatGPT لتتحدث مع مدرائك (بذاكرتهم وتقاريرهم) من داخل أي تطبيق ذكاء اصطناعي.", en: "Add this URL and token as a custom connector in Claude or ChatGPT to talk to YOUR managers (with their memory and reports) from inside any AI app." },
+  mcpToken: { ar: "مفتاح الربط (Bearer token)", en: "Integration token (Bearer)" },
+  rotateToken: { ar: "توليد مفتاح جديد", en: "Rotate token" },
+  rotateWarn: { ar: "توليد مفتاح جديد يفصل أي ربط حالي.", en: "Rotating disconnects existing connectors." },
 };
 
 function t(key) {
@@ -306,6 +316,11 @@ function actionItemHtml(a, i) {
         <dt>${t("why")}</dt><dd>${esc(a.why)}</dd>
         <dt>${t("how")}</dt><dd>${md(a.how)}</dd>
         <dt>${t("impact")}</dt><dd>${esc(a.impact)}</dd>
+        ${a.measuredImpact
+          ? `<dt>📊 ${t("measuredImpact")} (${esc((a.measuredAt || "").slice(0, 10))})</dt><dd>${md(a.measuredImpact)}</dd>`
+          : a.status === "done"
+            ? `<dt>📊 ${t("measuredImpact")}</dt><dd class="sub">${t("awaitingMeasure")}</dd>`
+            : ""}
       </dl>
     </div>
     <div class="controls">
@@ -392,6 +407,11 @@ async function dashboardView() {
       </div>
       ${report ? `<h2>${t("latestReport")}</h2>${reportHtml(report)}` : `<div class="card"><p class="sub">${t("noReports")}</p></div>`}
       <div class="card">
+        <h2 style="margin-top:0">🏆 ${t("achievements")}</h2>
+        <p class="sub">${t("achievementsHint")}</p>
+        <div id="achList">…</div>
+      </div>
+      <div class="card">
         <h2 style="margin-top:0">${t("recentEvents")}</h2>
         ${events.length
           ? events.slice(0, 12).map((e) => `
@@ -405,6 +425,27 @@ async function dashboardView() {
           : `<p class="sub">${t("noEvents")}</p>`}
       </div>`;
     if (report) wireActionButtons(body, report, render);
+    const achList = body.querySelector("#achList");
+    if (achList) {
+      api("/achievements").then((items) => {
+        achList.innerHTML = items.length
+          ? items.slice(0, 10).map((a) => {
+              const mgr = state.agents.find((x) => x.id === a.manager);
+              return `
+              <div class="action-item">
+                <div class="head">
+                  <h3>${esc(a.title)}</h3>
+                  ${mgr ? `<span class="badge">${esc(mgr.name)}</span>` : ""}
+                  <span class="sub" style="font-size:0.78rem">${esc((a.statusChangedAt || a.date).slice(0, 10))}</span>
+                </div>
+                ${a.measuredImpact
+                  ? `<div class="body">📊 ${md(a.measuredImpact)}</div>`
+                  : `<div class="body sub">${t("awaitingMeasure")}</div>`}
+              </div>`;
+            }).join("")
+          : `<p class="sub">${t("noAchievements")}</p>`;
+      }).catch(() => { achList.innerHTML = ""; });
+    }
     const runBtn = body.querySelector("#runBtn");
     if (runBtn) runBtn.onclick = async () => {
       runBtn.disabled = true;
@@ -713,6 +754,19 @@ async function settingsView() {
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">${t("mcpSection")}</h2>
+    <p class="sub">${t("mcpHint")}</p>
+    <label>MCP URL</label>
+    <input type="text" readonly value="${esc(location.origin)}/mcp" onclick="this.select()" />
+    <label>${t("mcpToken")}</label>
+    <input type="text" readonly id="intToken" value="…" onclick="this.select()" />
+    <div class="row" style="margin-top:12px">
+      <button class="ghost danger fit" id="rotateBtn">${t("rotateToken")}</button>
+      <span class="sub fit">${t("rotateWarn")}</span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">${t("diagnostics")}</h2>
     <div class="row">
       <button class="ghost fit" id="diagBtn">${t("runChecks")}</button>
@@ -774,6 +828,14 @@ async function settingsView() {
     } catch (err) {
       notice(body.querySelector("#saveMsg"), "err", err.message);
     }
+  };
+
+  api("/integration-token").then(({ token }) => {
+    body.querySelector("#intToken").value = token;
+  }).catch(() => {});
+  body.querySelector("#rotateBtn").onclick = async () => {
+    const { token } = await api("/integration-token/rotate", { method: "POST" });
+    body.querySelector("#intToken").value = token;
   };
 
   body.querySelector("#diagBtn").onclick = async () => {

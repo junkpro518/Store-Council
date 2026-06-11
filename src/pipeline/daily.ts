@@ -19,6 +19,11 @@ export interface ActionItem {
   impact: string;
   priority: number; // 1 = highest
   status: ActionStatus;
+  /** When the owner last changed the status (set on done/dismissed). */
+  statusChangedAt?: string;
+  /** Filled by the impact-measurement loop ~14 days after "done". */
+  measuredAt?: string;
+  measuredImpact?: string;
 }
 
 export interface DailyReport {
@@ -164,10 +169,20 @@ ${findings.map(([id, text]) => `\n## Findings from ${id}\n${text}`).join("\n")}`
     report,
   ]);
 
-  // Hermes-style maintenance: curate agent memories in the background when due.
-  if (curationDue()) {
-    runCurator().catch((err) => console.error("[curator] run failed:", err));
-  }
+  // Post-run background work: impact measurements for actions implemented
+  // ~2 weeks ago, then memory curation when due.
+  void (async () => {
+    try {
+      const { runImpactMeasurements } = await import("./impact.js");
+      const measured = await runImpactMeasurements();
+      if (measured > 0) console.log(`[impact] measured ${measured} implemented action(s)`);
+    } catch (err) {
+      console.error("[impact] loop failed:", err);
+    }
+    if (curationDue()) {
+      runCurator().catch((err) => console.error("[curator] run failed:", err));
+    }
+  })();
 
   return report;
 }
@@ -182,6 +197,54 @@ export function getReport(date: string): DailyReport | undefined {
   return reportStore.read().find((r) => r.date === date);
 }
 
+/** Actions implemented ≥`ageDays` ago and not yet measured (for the impact loop). */
+export function dueForMeasurement(ageDays = 14): { date: string; index: number; action: ActionItem }[] {
+  const cutoff = Date.now() - ageDays * 24 * 60 * 60 * 1000;
+  const due: { date: string; index: number; action: ActionItem }[] = [];
+  for (const r of reportStore.read()) {
+    r.actions.forEach((a, index) => {
+      if (
+        a.status === "done" &&
+        !a.measuredAt &&
+        a.statusChangedAt &&
+        Date.parse(a.statusChangedAt) < cutoff
+      ) {
+        due.push({ date: r.date, index, action: a });
+      }
+    });
+  }
+  return due;
+}
+
+export function recordMeasurement(date: string, index: number, measuredImpact: string): void {
+  reportStore.update((reports) =>
+    reports.map((r) =>
+      r.date !== date
+        ? r
+        : {
+            ...r,
+            actions: r.actions.map((a, i) =>
+              i === index
+                ? { ...a, measuredAt: new Date().toISOString(), measuredImpact }
+                : a
+            ),
+          }
+    )
+  );
+}
+
+/** The achievement ledger: every implemented action with its measured impact. */
+export function achievements(): (ActionItem & { date: string })[] {
+  return reportStore
+    .read()
+    .flatMap((r) =>
+      r.actions
+        .filter((a) => a.status === "done")
+        .map((a) => ({ ...a, date: r.date }))
+    )
+    .sort((a, b) => (a.statusChangedAt ?? a.date) < (b.statusChangedAt ?? b.date) ? 1 : -1);
+}
+
 export function setActionStatus(
   date: string,
   index: number,
@@ -193,7 +256,9 @@ export function setActionStatus(
     reports.map((r) => {
       if (r.date !== date || !r.actions[index]) return r;
       action = r.actions[index];
-      const actions = r.actions.map((a, i) => (i === index ? { ...a, status } : a));
+      const actions = r.actions.map((a, i) =>
+        i === index ? { ...a, status, statusChangedAt: new Date().toISOString() } : a
+      );
       updated = { ...r, actions };
       return updated;
     })

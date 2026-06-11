@@ -52,6 +52,8 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 
 Each agent has an expert persona **with critical rules** (red lines it never crosses) and seven tools: department-scoped `salla_read`, `consult_agent` (pairwise teamwork), `council_board` (the team's shared blackboard during daily sessions), `read_playbook` (domain field guides in SKILL.md format, loaded on demand), `save_memory`, `metrics_history` (the store's real KPI time series), and `calculate`. The agentic loop runs on the owner-selected provider: **Anthropic** (Claude Opus 4.8 with adaptive thinking, default) or **OpenRouter** (any tool-calling model).
 
+**Accountability and reach.** Implemented recommendations get their real impact **measured automatically ~14 days later** (the owning manager re-pulls the metric it cited) and land in the dashboard's **achievement ledger** — receipts, not just advice. And the platform is an **MCP server** (`/mcp`): merchants can talk to *their own council* — with its memory, specialists, and reports — from inside Claude, ChatGPT, or any MCP-capable client, using the integration token from Settings.
+
 **The council learns.** Every manager keeps long-term memory: lessons it saves itself, durable store facts, and automatic feedback whenever the owner implements or dismisses a recommendation — rejected advice isn't repeated, accepted directions are reinforced. A background **curator** periodically cleans each memory (merging duplicates, dropping stale items), and the owner can inspect or delete any memory from the dashboard.
 
 ## Architecture

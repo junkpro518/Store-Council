@@ -9,11 +9,14 @@ import { JsonStore } from "../store/jsonStore.js";
 interface AuthState {
   passwordHash: string | null; // "salt:hash" (scrypt)
   sessions: { token: string; expiresAt: number }[];
+  /** Long-lived token for external integrations (MCP connectors). */
+  integrationToken?: string | null;
 }
 
 const store = new JsonStore<AuthState>("auth", {
   passwordHash: null,
   sessions: [],
+  integrationToken: null,
 });
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -60,10 +63,26 @@ export function login(password: string): string | null {
 
 export function verifyToken(token: string | undefined): boolean {
   if (!token) return false;
+  const state = store.read();
+  if (state.integrationToken && token === state.integrationToken) return true;
   const now = Date.now();
-  return store
-    .read()
-    .sessions.some((s) => s.token === token && s.expiresAt > now);
+  return state.sessions.some((s) => s.token === token && s.expiresAt > now);
+}
+
+/** Stable token for MCP/integration clients. Created on first request. */
+export function integrationToken(): string {
+  const state = store.read();
+  if (state.integrationToken) return state.integrationToken;
+  const token = "sc_int_" + crypto.randomBytes(32).toString("hex");
+  store.update((s) => ({ ...s, integrationToken: token }));
+  return token;
+}
+
+/** Rotate the integration token (invalidates connected MCP clients). */
+export function rotateIntegrationToken(): string {
+  const token = "sc_int_" + crypto.randomBytes(32).toString("hex");
+  store.update((s) => ({ ...s, integrationToken: token }));
+  return token;
 }
 
 export function logout(token: string): void {

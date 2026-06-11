@@ -77,6 +77,20 @@ Settings shape:
 
 Action item shape: `{title, manager, what, why, how, impact, priority, status}`.
 
+## Achievements & impact
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/achievements` 🔒 | The achievement ledger: every implemented action with `measuredAt`/`measuredImpact` (filled ~14 days after "done" by the impact-measurement loop) |
+
+## MCP (connect the council to Claude/ChatGPT)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/mcp` 🔒 | Stateless Streamable-HTTP MCP endpoint. Authenticate with the **integration token** as a Bearer header. Tools: `list_managers`, `ask_manager`, `get_daily_report`, `list_reports`, `set_action_status`, `get_achievements`, `get_metrics_history` |
+| GET | `/integration-token` 🔒 | Returns the long-lived integration token (created on first request) |
+| POST | `/integration-token/rotate` 🔒 | Rotates it (disconnects existing MCP clients) |
+
 ## Diagnostics
 
 | Method | Path | Description |

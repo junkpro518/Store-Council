@@ -37,6 +37,9 @@ import { connectionInfo } from "./salla/auth.js";
 import { llm, testOpenRouter } from "./llm/client.js";
 import { memories, forget } from "./agents/memory.js";
 import { curatorStatus, runCurator } from "./pipeline/curator.js";
+import { achievements } from "./pipeline/daily.js";
+import { buildCouncilMcpServer } from "./mcp/council.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { aiConfigured } from "./settings/settings.js";
 import { sallaGet } from "./salla/client.js";
 
@@ -342,6 +345,45 @@ app.delete("/agents/:id/memory/:memoryId", requireAuth, (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+// ---------- Achievement ledger ----------
+
+app.get("/achievements", requireAuth, (_req, res) => {
+  res.json(achievements());
+});
+
+// ---------- MCP server (talk to the council from Claude/ChatGPT) ----------
+
+app.post("/mcp", requireAuth, async (req, res) => {
+  try {
+    // Stateless mode: a fresh server+transport per request.
+    const mcp = buildCouncilMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    res.on("close", () => {
+      transport.close();
+      mcp.close();
+    });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    console.error("[mcp] request failed:", err);
+    if (!res.headersSent) res.status(500).json({ error: "MCP request failed" });
+  }
+});
+
+app.get("/mcp", (_req, res) => {
+  res.status(405).json({ error: "Use POST (stateless MCP transport)" });
+});
+
+app.get("/integration-token", requireAuth, (_req, res) => {
+  res.json({ token: owner.integrationToken(), mcpUrl: "/mcp" });
+});
+
+app.post("/integration-token/rotate", requireAuth, (_req, res) => {
+  res.json({ token: owner.rotateIntegrationToken() });
 });
 
 app.get("/curator/status", requireAuth, (_req, res) => {
