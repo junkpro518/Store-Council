@@ -34,7 +34,8 @@ import * as owner from "./auth/owner.js";
 import { verifySignature, handleWebhook, recentEvents } from "./salla/webhooks.js";
 import { getStoreInfo } from "./salla/storeInfo.js";
 import { connectionInfo } from "./salla/auth.js";
-import { llm } from "./llm/client.js";
+import { llm, testOpenRouter } from "./llm/client.js";
+import { aiConfigured } from "./settings/settings.js";
 import { sallaGet } from "./salla/client.js";
 
 const app = express();
@@ -93,6 +94,9 @@ app.get("/auth/status", (req, res) => {
     setup: owner.isSetup(),
     authenticated: owner.verifyToken(bearer(req)),
     storeConnected: isConnected(),
+    provider: getSettings().provider,
+    aiConfigured: aiConfigured(),
+    // kept for backward compatibility with older dashboards
     anthropicConfigured: Boolean(anthropicKey()),
   });
 });
@@ -229,17 +233,23 @@ app.get("/store/events", requireAuth, (_req, res) => {
 // ---------- Diagnostics (owner-facing health checks) ----------
 
 app.get("/diagnostics", requireAuth, async (_req, res) => {
+  const settings = getSettings();
   const result = {
-    anthropic: { ok: false, detail: "" },
+    provider: settings.provider,
+    ai: { ok: false, detail: "" },
     salla: { ok: false, detail: "" },
-    webhookSecret: Boolean(getSettings().salla.webhookSecret),
-    dailyEnabled: getSettings().dailyEnabled,
+    webhookSecret: Boolean(settings.salla.webhookSecret),
+    dailyEnabled: settings.dailyEnabled,
   };
   try {
-    await llm().models.list({ limit: 1 });
-    result.anthropic = { ok: true, detail: "API key valid" };
+    if (settings.provider === "openrouter") {
+      result.ai = { ok: true, detail: await testOpenRouter() };
+    } else {
+      await llm().models.list({ limit: 1 });
+      result.ai = { ok: true, detail: "API key valid" };
+    }
   } catch (err) {
-    result.anthropic = { ok: false, detail: (err as Error).message };
+    result.ai = { ok: false, detail: (err as Error).message };
   }
   try {
     if (!isConnected()) throw new Error("Store not connected");
@@ -466,6 +476,23 @@ function applySchedule(): void {
 
 applySchedule();
 
-app.listen(config.port, () => {
+// Malformed JSON bodies and other route errors return JSON, never an HTML page.
+app.use(
+  (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const status = "status" in err && typeof err.status === "number" ? err.status : 500;
+    res.status(status).json({ error: status === 500 ? "Internal error" : err.message });
+  }
+);
+
+const server = app.listen(config.port, () => {
   console.log(`Store Council dashboard: http://localhost:${config.port}`);
 });
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    console.log(`[server] ${signal} received — shutting down`);
+    task?.stop();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000).unref();
+  });
+}

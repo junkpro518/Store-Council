@@ -23,7 +23,10 @@ export class JsonStore<T> {
   }
 
   write(value: T): void {
-    fs.writeFileSync(this.file, JSON.stringify(value, null, 2));
+    // Atomic write: a crash mid-write must never corrupt existing data.
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+    fs.renameSync(tmp, this.file);
   }
 
   update(fn: (current: T) => T): T {

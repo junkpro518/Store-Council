@@ -1,6 +1,6 @@
 import { enabledSpecialists } from "../agents/definitions.js";
 import { runAgent } from "../agents/runner.js";
-import { llm, modelId } from "../llm/client.js";
+import { llm, modelId, openRouterChat } from "../llm/client.js";
 import { getSettings } from "../settings/settings.js";
 import { JsonStore } from "../store/jsonStore.js";
 
@@ -52,54 +52,75 @@ async function mapLimited<T, R>(
   return results;
 }
 
+const ACTIONS_SCHEMA = {
+  type: "object",
+  properties: {
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          manager: { type: "string" },
+          what: { type: "string" },
+          why: { type: "string" },
+          how: { type: "string" },
+          impact: { type: "string" },
+          priority: { type: "integer" },
+        },
+        required: ["title", "manager", "what", "why", "how", "impact", "priority"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["actions"],
+  additionalProperties: false,
+} as const;
+
+const EXTRACT_PROMPT = (summary: string) =>
+  `Extract every action item from this daily store report into the JSON schema. Keep the original language of the report. "manager" must be the department id mentioned (one of: catalog, pricing, marketing, seo, cro, customer-service, retention, orders, shipping, inventory, finance, reviews, payments, growth, gm). "how" must contain the full step-by-step dashboard instructions. priority 1 = most important.\n\n---\n${summary}`;
+
+function parseActions(text: string): ActionItem[] {
+  // Tolerate markdown fences some providers wrap JSON in.
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const parsed = JSON.parse(cleaned) as { actions: Omit<ActionItem, "status">[] };
+  return parsed.actions
+    .sort((a, b) => a.priority - b.priority)
+    .map((a) => ({ ...a, status: "new" as const }));
+}
+
 /** Extract structured, trackable actions from the GM's report. */
 async function extractActions(summary: string): Promise<ActionItem[]> {
+  if (getSettings().provider === "openrouter") {
+    const data = await openRouterChat({
+      max_tokens: 8000,
+      messages: [{ role: "user", content: EXTRACT_PROMPT(summary) }],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "actions", strict: true, schema: ACTIONS_SCHEMA },
+      },
+    });
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return [];
+    try {
+      return parseActions(content);
+    } catch {
+      return [];
+    }
+  }
+
   const response = await llm().messages.create({
     model: modelId(),
     max_tokens: 8000,
     output_config: {
-      format: {
-        type: "json_schema",
-        schema: {
-          type: "object",
-          properties: {
-            actions: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  title: { type: "string" },
-                  manager: { type: "string" },
-                  what: { type: "string" },
-                  why: { type: "string" },
-                  how: { type: "string" },
-                  impact: { type: "string" },
-                  priority: { type: "integer" },
-                },
-                required: ["title", "manager", "what", "why", "how", "impact", "priority"],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: ["actions"],
-          additionalProperties: false,
-        },
-      },
+      format: { type: "json_schema", schema: ACTIONS_SCHEMA },
     },
-    messages: [
-      {
-        role: "user",
-        content: `Extract every action item from this daily store report into the JSON schema. Keep the original language of the report. "manager" must be the department id mentioned (one of: catalog, pricing, marketing, seo, cro, customer-service, retention, orders, shipping, inventory, finance, reviews, payments, growth, gm). "how" must contain the full step-by-step dashboard instructions. priority 1 = most important.\n\n---\n${summary}`,
-      },
-    ],
+    messages: [{ role: "user", content: EXTRACT_PROMPT(summary) }],
   });
   const text = response.content.find((b) => b.type === "text");
   if (!text || text.type !== "text") return [];
   try {
-    const parsed = JSON.parse(text.text) as { actions: Omit<ActionItem, "status">[] };
-    return parsed.actions
-      .sort((a, b) => a.priority - b.priority)
-      .map((a) => ({ ...a, status: "new" as const }));
+    return parseActions(text.text);
   } catch {
     return [];
   }

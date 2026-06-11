@@ -102,6 +102,13 @@ const STRINGS = {
   connectedVia: { ar: "مربوط عبر", en: "Connected via" },
   viaAppStore: { ar: "متجر تطبيقات سلة", en: "Salla App Store" },
   viaOauth: { ar: "ربط يدوي (OAuth)", en: "Manual OAuth" },
+  provider: { ar: "مزوّد الذكاء الاصطناعي", en: "AI provider" },
+  providerHint: { ar: "Anthropic مباشرة (مستحسن)، أو OpenRouter للوصول لنماذج متعددة بمفتاح واحد.", en: "Anthropic directly (recommended), or OpenRouter for access to many models with one key." },
+  openRouterKey: { ar: "مفتاح OpenRouter API", en: "OpenRouter API key" },
+  openRouterKeyHint: { ar: "من openrouter.ai/keys", en: "From openrouter.ai/keys" },
+  openRouterModel: { ar: "معرّف النموذج في OpenRouter", en: "OpenRouter model id" },
+  openRouterModelHint: { ar: "أي نموذج يدعم استدعاء الأدوات من openrouter.ai/models — مثال: anthropic/claude-sonnet-4.5", en: "Any tool-calling model from openrouter.ai/models — e.g. anthropic/claude-sonnet-4.5" },
+  needsAiKey: { ar: "أضف مفتاح مزوّد الذكاء الاصطناعي من الإعدادات لتشغيل المدراء.", en: "Add your AI provider's API key in Settings to power the managers." },
 };
 
 function t(key) {
@@ -353,7 +360,7 @@ async function dashboardView() {
 
   const status = await api("/auth/status");
   const warnings = [];
-  if (!status.anthropicConfigured) warnings.push(t("needsKey"));
+  if (!status.aiConfigured) warnings.push(t("needsAiKey"));
   if (!status.storeConnected) warnings.push(t("storeNotConnected"));
 
   let report = null;
@@ -592,13 +599,26 @@ async function settingsView() {
   body.innerHTML = `
   <div class="card">
     <h2 style="margin-top:0">${t("aiSettings")}</h2>
-    <label>${t("anthropicKey")} <span class="hint">— ${t("anthropicKeyHint")}</span></label>
-    <input type="password" id="apiKey" value="${esc(s.anthropicApiKey)}" placeholder="sk-ant-…" />
-    <label>${t("model")}</label>
-    <select id="model">
-      ${["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"].map((m) =>
-        `<option value="${m}" ${s.model === m ? "selected" : ""}>${m}</option>`).join("")}
+    <label>${t("provider")} <span class="hint">— ${t("providerHint")}</span></label>
+    <select id="provider">
+      <option value="anthropic" ${s.provider === "anthropic" ? "selected" : ""}>Anthropic</option>
+      <option value="openrouter" ${s.provider === "openrouter" ? "selected" : ""}>OpenRouter</option>
     </select>
+    <div id="anthropicFields" ${s.provider === "openrouter" ? "hidden" : ""}>
+      <label>${t("anthropicKey")} <span class="hint">— ${t("anthropicKeyHint")}</span></label>
+      <input type="password" id="apiKey" value="${esc(s.anthropicApiKey)}" placeholder="sk-ant-…" />
+      <label>${t("model")}</label>
+      <select id="model">
+        ${["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"].map((m) =>
+          `<option value="${m}" ${s.model === m ? "selected" : ""}>${m}</option>`).join("")}
+      </select>
+    </div>
+    <div id="openrouterFields" ${s.provider === "openrouter" ? "" : "hidden"}>
+      <label>${t("openRouterKey")} <span class="hint">— ${t("openRouterKeyHint")}</span></label>
+      <input type="password" id="orKey" value="${esc(s.openRouter.apiKey)}" placeholder="sk-or-…" />
+      <label>${t("openRouterModel")} <span class="hint">— ${t("openRouterModelHint")}</span></label>
+      <input type="text" id="orModel" value="${esc(s.openRouter.model)}" />
+    </div>
     <label>${t("language")}</label>
     <select id="language">
       <option value="auto" ${s.language === "auto" ? "selected" : ""}>${t("langAuto")}</option>
@@ -690,13 +710,24 @@ async function settingsView() {
     </div>
   </div>`;
 
+  body.querySelector("#provider").onchange = (e) => {
+    const isOr = e.target.value === "openrouter";
+    body.querySelector("#anthropicFields").hidden = isOr;
+    body.querySelector("#openrouterFields").hidden = !isOr;
+  };
+
   body.querySelector("#saveBtn").onclick = async () => {
     try {
       await api("/settings", {
         method: "PUT",
         body: JSON.stringify({
+          provider: body.querySelector("#provider").value,
           anthropicApiKey: body.querySelector("#apiKey").value.trim(),
           model: body.querySelector("#model").value,
+          openRouter: {
+            apiKey: body.querySelector("#orKey").value.trim(),
+            model: body.querySelector("#orModel").value.trim(),
+          },
           language: body.querySelector("#language").value,
           storeContext: body.querySelector("#storeContext").value,
           dailyEnabled: body.querySelector("#dailyEnabled").checked,
@@ -723,8 +754,9 @@ async function settingsView() {
     out.innerHTML = `<span class="sub">${t("checking")}</span>`;
     try {
       const d = await api("/diagnostics");
+      const providerLabel = d.provider === "openrouter" ? "OpenRouter" : "Anthropic";
       out.innerHTML = `
-        <span class="badge ${d.anthropic.ok ? "" : "off"}">Anthropic: ${esc(d.anthropic.ok ? "✓" : d.anthropic.detail)}</span>
+        <span class="badge ${d.ai.ok ? "" : "off"}">${providerLabel}: ${esc(d.ai.ok ? "✓ " + d.ai.detail : d.ai.detail)}</span>
         <span class="badge ${d.salla.ok ? "" : "off"}">Salla: ${esc(d.salla.ok ? "✓ " + d.salla.detail : d.salla.detail)}</span>
         <span class="badge ${d.webhookSecret ? "" : "warn"}">Webhook secret: ${d.webhookSecret ? "✓" : "—"}</span>`;
     } catch (err) {

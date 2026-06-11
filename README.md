@@ -2,9 +2,19 @@
 
 **An AI management team for a Salla store.** The platform connects to one Salla store in strict **read-only** mode, analyzes every aspect of it **automatically every day**, and delivers expert recommendations with **step-by-step Salla-dashboard implementation instructions**. The owner can **chat directly with any of the 14 specialist AI department managers**, who also **consult each other** when a finding crosses departments.
 
-Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal.
+Everything is controlled from a built-in, Arabic-first **web dashboard** — the owner never needs to touch code, config files, or the terminal. Agents run on **Anthropic** (default) or **OpenRouter** — the owner picks the provider and model in Settings.
 
 > The platform never modifies the store. It observes, analyzes, recommends, and explains — the merchant always executes the changes.
+
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| [docs/OWNER-GUIDE.md](docs/OWNER-GUIDE.md) | Store-owner manual (with Arabic quick start) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design: agents, tools, providers, Salla layer, security |
+| [docs/API.md](docs/API.md) | Full HTTP API reference |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deploy + Salla App Store listing checklist |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Proposed future features, phased |
 
 ---
 
@@ -40,7 +50,7 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 | `payments` | Payments Manager | Mada/Apple Pay/BNPL/COD mix, failed transactions |
 | `growth` | Growth Strategist | KPIs, assortment gaps, strategic priorities |
 
-Each agent has an expert persona, a `salla_read` tool scoped to **its department's endpoints only**, a `consult_agent` tool for inter-agent communication (depth-limited), and a `calculate` tool for exact metrics. Agents run on **Claude Opus 4.8** with adaptive thinking.
+Each agent has an expert persona, a `salla_read` tool scoped to **its department's endpoints only**, a `consult_agent` tool for inter-agent communication (depth-limited), and a `calculate` tool for exact metrics. The agentic loop runs on the owner-selected provider: **Anthropic** (Claude Opus 4.8 with adaptive thinking, default) or **OpenRouter** (any tool-calling model).
 
 ## Architecture
 
@@ -129,7 +139,7 @@ src/
   agents/runner.ts        # Claude tool-runner loop per agent
   auth/owner.ts           # owner password + session tokens (scrypt)
   chat/chatStore.ts       # per-agent chat history
-  llm/client.ts           # Anthropic client from runtime settings
+  llm/client.ts           # Anthropic + OpenRouter clients from runtime settings
   pipeline/daily.ts       # parallel analysis + GM consolidation + action extraction
   salla/auth.ts           # OAuth + Easy Mode tokens (authorize, exchange, refresh)
   salla/client.ts         # GET-only allowlisted Salla Admin API client

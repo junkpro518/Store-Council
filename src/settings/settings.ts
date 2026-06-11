@@ -18,9 +18,17 @@ export interface AgentOverride {
 }
 
 export interface PlatformSettings {
+  /** Which AI provider powers the agents. */
+  provider: "anthropic" | "openrouter";
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env if empty. */
   anthropicApiKey: string;
   model: string;
+  openRouter: {
+    /** OpenRouter API key (openrouter.ai). Falls back to OPENROUTER_API_KEY env. */
+    apiKey: string;
+    /** Any model id from openrouter.ai/models that supports tool calling. */
+    model: string;
+  };
   /** "ar" = always Arabic, "en" = always English, "auto" = mirror the owner. */
   language: "ar" | "en" | "auto";
   /** Free-text store context the owner writes (niche, goals, constraints). */
@@ -42,8 +50,13 @@ export interface PlatformSettings {
 }
 
 const defaults: PlatformSettings = {
+  provider: "anthropic",
   anthropicApiKey: "",
   model: "claude-opus-4-8",
+  openRouter: {
+    apiKey: process.env.OPENROUTER_API_KEY ?? "",
+    model: "anthropic/claude-sonnet-4.5",
+  },
   language: "auto",
   storeContext: "",
   dailyEnabled: true,
@@ -71,6 +84,7 @@ export function getSettings(): PlatformSettings {
     ...defaults,
     ...saved,
     salla: { ...defaults.salla, ...saved.salla },
+    openRouter: { ...defaults.openRouter, ...saved.openRouter },
     agents: saved.agents ?? {},
   };
 }
@@ -83,11 +97,13 @@ export function updateSettings(
     ...current,
     ...patch,
     salla: { ...current.salla, ...(patch.salla ?? {}) },
+    openRouter: { ...current.openRouter, ...(patch.openRouter ?? {}) },
     agents: { ...current.agents, ...(patch.agents ?? {}) },
   };
   next.analysisConcurrency = clampInt(next.analysisConcurrency, 1, 8, 4);
   next.topActionsCount = clampInt(next.topActionsCount, 3, 10, 5);
   if (!["ar", "en", "auto"].includes(next.language)) next.language = "auto";
+  if (!["anthropic", "openrouter"].includes(next.provider)) next.provider = "anthropic";
   store.write(next);
   return next;
 }
@@ -109,6 +125,17 @@ export function agentOverride(agentId: string): AgentOverride {
 
 export function anthropicKey(): string {
   return getSettings().anthropicApiKey || process.env.ANTHROPIC_API_KEY || "";
+}
+
+export function openRouterKey(): string {
+  return getSettings().openRouter.apiKey || process.env.OPENROUTER_API_KEY || "";
+}
+
+/** True when the currently selected provider has an API key configured. */
+export function aiConfigured(): boolean {
+  return getSettings().provider === "openrouter"
+    ? Boolean(openRouterKey())
+    : Boolean(anthropicKey());
 }
 
 function clampInt(v: unknown, min: number, max: number, dflt: number): number {
