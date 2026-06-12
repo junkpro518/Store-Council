@@ -15,6 +15,7 @@ import { runWithTenant } from "./tenancy/context.js";
 import { claimJobs, completeJob, failJob, reclaimStale, Job } from "./jobs/queue.js";
 import { enqueueDueDailyJobs } from "./jobs/enqueuer.js";
 import { lockExpiredGraces } from "./billing/subscriptions.js";
+import { purgeExpiredRetention } from "./tenancy/registry.js";
 import { runWithUsageKind } from "./billing/usage.js";
 
 console.log(
@@ -73,6 +74,9 @@ async function tick(): Promise<void> {
 
     const locked = await lockExpiredGraces();
     if (locked > 0) console.log(`[worker] locked ${locked} tenant(s) past grace`);
+
+    const purged = await purgeExpiredRetention(90);
+    if (purged > 0) console.log(`[worker] purged ${purged} tenant(s) past 90-day retention`);
 
     const { enqueued } = await enqueueDueDailyJobs();
     if (enqueued > 0) console.log(`[worker] enqueued ${enqueued} daily analysis job(s)`);

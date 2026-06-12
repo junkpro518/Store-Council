@@ -24,6 +24,16 @@ export const platformConfig = {
    * the default tenant's settings (legacy single-store behavior) when unset.
    */
   sallaWebhookSecret: process.env.SALLA_WEBHOOK_SECRET ?? "",
+  /**
+   * Platform-level Salla app credentials (one Salla app serves all tenants).
+   * Required in SaaS mode for token refresh of provisioned tenants and for
+   * login-with-Salla; the default tenant's settings remain the fallback for
+   * dedicated deployments.
+   */
+  sallaClientId: process.env.SALLA_CLIENT_ID ?? "",
+  sallaClientSecret: process.env.SALLA_CLIENT_SECRET ?? "",
+  /** Override for tests/self-hosted gateways. */
+  sallaAccountsBase: process.env.SALLA_ACCOUNTS_BASE ?? "https://accounts.salla.sa/oauth2",
   /** Worker tuning (P3). */
   worker: {
     /** Max LLM-heavy jobs running simultaneously across all tenants. */

@@ -57,6 +57,7 @@ import {
   markReinstalled,
   revokeIntegrationTokens,
   resolveIntegrationToken,
+  purgeTenant,
 } from "./tenancy/registry.js";
 import { currentStoreId } from "./tenancy/context.js";
 import { enqueueJob, activeJob } from "./jobs/queue.js";
@@ -69,7 +70,21 @@ import {
   runWithUsageKind,
   currentPlan,
   onDemandRunsThisMonth,
+  messagesThisMonth,
+  tokensToday,
 } from "./billing/usage.js";
+import { PLAN_MATRIX } from "./billing/plans.js";
+import { adminSetTenant } from "./billing/subscriptions.js";
+import {
+  resolveMerchantSession,
+  revokeMerchantSession,
+  loginWithSalla,
+  ensureAccountForStore,
+  createMerchantSession,
+  audit,
+} from "./auth/accounts.js";
+import { getPgPool } from "./store/jsonStore.js";
+import { sallaCreds } from "./salla/auth.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -117,26 +132,44 @@ function bearer(req: express.Request): string | undefined {
   return typeof req.query.token === "string" ? req.query.token : undefined;
 }
 
-function requireAuth(
+const LOCKED_MSG =
+  "تم إيقاف الخدمة مؤقتاً (اشتراك غير مفعّل). تواصل مع الدعم أو جدّد اشتراكك. / Service suspended (inactive subscription). Contact support or renew.";
+
+async function requireAuth(
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
-): void {
-  if (!owner.verifyToken(bearer(req))) {
-    res.status(401).json({ error: "Unauthorized" });
+): Promise<void> {
+  const presented = bearer(req);
+  // Legacy/dedicated owner session → the default tenant.
+  if (owner.verifyToken(presented)) {
+    if (tenantLocked()) {
+      res.status(402).json({ error: LOCKED_MSG, locked: true });
+      return;
+    }
+    next();
     return;
   }
-  // Central-panel lock gate: a locked tenant can log in and read the lock
-  // message, but every merchant operation is suspended until unlocked.
-  if (tenantLocked()) {
-    res.status(402).json({
-      error:
-        "تم إيقاف الخدمة مؤقتاً من إدارة المنصة (اشتراك غير مفعّل). تواصل مع الدعم. / Service suspended by the platform administrator (inactive subscription). Contact support.",
-      locked: true,
-    });
-    return;
+  // SaaS merchant session (login-with-Salla / impersonation) → its tenant.
+  if (multiTenant() && presented) {
+    try {
+      const session = await resolveMerchantSession(presented);
+      if (session) {
+        (req as express.Request & { merchantSession?: typeof session }).merchantSession = session;
+        runWithTenant(session.storeId, () => {
+          if (tenantLocked()) {
+            res.status(402).json({ error: LOCKED_MSG, locked: true });
+            return;
+          }
+          next();
+        });
+        return;
+      }
+    } catch (err) {
+      console.error("[auth] merchant session resolution failed:", err);
+    }
   }
-  next();
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 function requireAdmin(
@@ -157,13 +190,119 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/auth/status", (req, res) => {
+app.get("/auth/status", async (req, res) => {
+  const presented = bearer(req);
+  const base = { saas: multiTenant(), setup: owner.isSetup(), provider: "openrouter" };
+  if (owner.verifyToken(presented)) {
+    res.json({
+      ...base,
+      authenticated: true,
+      storeConnected: isConnected(),
+      aiConfigured: aiConfigured(),
+      tenant: { plan: multiTenant() ? platformState().plan : "dedicated", impersonated: false },
+    });
+    return;
+  }
+  if (multiTenant() && presented) {
+    const session = await resolveMerchantSession(presented).catch(() => null);
+    if (session) {
+      runWithTenant(session.storeId, () => {
+        res.json({
+          ...base,
+          authenticated: true,
+          storeConnected: isConnected(),
+          aiConfigured: aiConfigured(),
+          tenant: {
+            plan: platformState().plan,
+            impersonated: session.impersonated,
+            locked: tenantLocked(),
+          },
+        });
+      });
+      return;
+    }
+  }
   res.json({
-    setup: owner.isSetup(),
-    authenticated: owner.verifyToken(bearer(req)),
+    ...base,
+    authenticated: false,
     storeConnected: isConnected(),
-    provider: "openrouter",
     aiConfigured: aiConfigured(),
+  });
+});
+
+// ---------- Login with Salla (SaaS merchant identity) ----------
+
+app.get("/auth/salla/login", (req, res) => {
+  try {
+    const state = "login_" + crypto.randomBytes(16).toString("hex");
+    pendingStates.set(state, Date.now());
+    res.redirect(authorizeUrl(state));
+  } catch (err) {
+    res.status(400).send((err as Error).message);
+  }
+});
+
+app.get("/auth/salla/login/callback", async (req, res) => {
+  const { code, state } = req.query as { code?: string; state?: string };
+  if (!code || !state || !consumeOAuthState(state)) {
+    res.status(400).send("Invalid login callback");
+    return;
+  }
+  if (!multiTenant()) {
+    res.status(400).send("Login with Salla is available in SaaS mode only.");
+    return;
+  }
+  try {
+    // Identity-only exchange: we never store these tokens.
+    const creds = sallaCreds();
+    const tokenRes = await fetch(`${config.salla.authBase}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: creds.redirectUri.replace(/\/callback$/, "/login/callback"),
+      }),
+    });
+    if (!tokenRes.ok) throw new Error(`token exchange failed (${tokenRes.status})`);
+    const { access_token } = (await tokenRes.json()) as { access_token?: string };
+    if (!access_token) throw new Error("no access token in exchange");
+    const login = await loginWithSalla({ accessToken: access_token }, config.salla.authBase);
+    if (!login) {
+      res
+        .status(404)
+        .send("لم نجد متجرك — ثبّت التطبيق من متجر تطبيقات سلة أولاً. / Store not found — install the app from the Salla App Store first.");
+      return;
+    }
+    res
+      .type("html")
+      .send(
+        `<!doctype html><meta charset="utf-8"><script>localStorage.setItem("sc_token",${JSON.stringify(login.token)});location.replace("/");</script>`
+      );
+  } catch (err) {
+    console.error("[login] salla login failed:", err);
+    res.status(500).send("Login failed — try again.");
+  }
+});
+
+// ---------- Plan & usage (the dashboard card) ----------
+
+app.get("/billing/usage", requireAuth, async (_req, res) => {
+  if (!multiTenant()) {
+    res.json({ plan: "dedicated", limits: null, usage: null });
+    return;
+  }
+  const planId = platformState().plan;
+  res.json({
+    plan: planId,
+    limits: PLAN_MATRIX[planId as keyof typeof PLAN_MATRIX] ?? PLAN_MATRIX.trial,
+    usage: {
+      messagesThisMonth: await messagesThisMonth(),
+      tokensToday: await tokensToday(),
+      onDemandThisMonth: await onDemandRunsThisMonth(),
+    },
   });
 });
 
@@ -202,8 +341,13 @@ app.post("/auth/login", (req, res) => {
   res.json({ token });
 });
 
-app.post("/auth/logout", requireAuth, (req, res) => {
-  owner.logout(bearer(req)!);
+app.post("/auth/logout", requireAuth, async (req, res) => {
+  const token = bearer(req)!;
+  if (token.startsWith("sc_mer_") || token.startsWith("sc_imp_")) {
+    await revokeMerchantSession(token);
+  } else {
+    owner.logout(token);
+  }
   res.json({ ok: true });
 });
 
@@ -746,7 +890,110 @@ app.get("/admin/overview", requireAdmin, async (req, res) => {
     })),
     curator: curatorStatus(),
     analysisRunning,
+    fleet: multiTenant() ? await fleetCounters() : null,
   });
+});
+
+/** Monitoring counters for the fleet view (T027). */
+async function fleetCounters(): Promise<Record<string, unknown>> {
+  const pool = getPgPool() as {
+    query: (t: string, p?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+  };
+  const [queue, tenants, tokens] = await Promise.all([
+    pool.query(`select
+        count(*) filter (where state = 'queued') as queued,
+        count(*) filter (where state = 'running') as running,
+        count(*) filter (where state = 'failed' and created_at > now() - interval '24 hours') as failed_24h,
+        coalesce(extract(epoch from now() - min(run_at)) filter (where state = 'queued' and run_at <= now()) / 60, 0)::int as oldest_due_min
+      from jobs`),
+    pool.query("select status, count(*)::int as n from stores group by status"),
+    pool.query(
+      "select coalesce(sum(input_tokens + output_tokens), 0)::bigint as today from usage_ledger where date = current_date"
+    ),
+  ]);
+  return {
+    queue: queue.rows[0],
+    tenantsByStatus: Object.fromEntries(tenants.rows.map((r) => [r.status, r.n])),
+    tokensToday: Number(tokens.rows[0]?.today ?? 0),
+  };
+}
+
+// ---------- Fleet administration (SaaS mode) ----------
+
+app.get("/admin/tenants", requireAdmin, async (_req, res) => {
+  if (!multiTenant()) {
+    res.json({ saas: false, tenants: [] });
+    return;
+  }
+  const pool = getPgPool() as {
+    query: (t: string, p?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+  };
+  const { rows } = await pool.query(`
+    select s.id, s.salla_merchant_id, s.name, s.status, s.trial_ends_at, s.uninstalled_at, s.created_at,
+           coalesce(sub.plan, 'trial') as plan,
+           coalesce(u.tokens_month, 0) as tokens_month,
+           coalesce(u.msgs_month, 0) as msgs_month,
+           coalesce(j.failed_24h, 0) as failed_24h
+    from stores s
+    left join subscriptions sub on sub.store_id = s.id
+    left join lateral (
+      select sum(input_tokens + output_tokens) as tokens_month,
+             count(*) filter (where kind in ('chat','mcp')) as msgs_month
+      from usage_ledger where store_id = s.id and date >= date_trunc('month', current_date)
+    ) u on true
+    left join lateral (
+      select count(*) as failed_24h from jobs
+      where store_id = s.id and state = 'failed' and created_at > now() - interval '24 hours'
+    ) j on true
+    order by s.created_at`);
+  res.json({ saas: true, tenants: rows });
+});
+
+app.put("/admin/tenants/:id", requireAdmin, async (req, res) => {
+  const { plan, status } = req.body ?? {};
+  if (plan !== undefined && !["trial", "basic", "pro", "growth", "custom"].includes(String(plan))) {
+    res.status(400).json({ error: "Invalid plan" });
+    return;
+  }
+  if (status !== undefined && !["trial", "active", "past_due", "locked"].includes(String(status))) {
+    res.status(400).json({ error: "Invalid status" });
+    return;
+  }
+  try {
+    await loadTenant(req.params.id);
+    await adminSetTenant(req.params.id, { plan, status });
+    await audit(req.params.id, "admin", "tenant_override", { plan, status });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/** Impersonation (audited, short-lived, visibly banner'd in the dashboard). */
+app.post("/admin/tenants/:id/impersonate", requireAdmin, async (req, res) => {
+  try {
+    await loadTenant(req.params.id);
+    const accountId = await ensureAccountForStore(req.params.id);
+    const token = await createMerchantSession(accountId, true);
+    await audit(req.params.id, "admin", "impersonate", {});
+    res.json({ token, expiresInHours: 24 });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.post("/admin/tenants/:id/purge", requireAdmin, async (req, res) => {
+  if (String(req.body?.confirm ?? "") !== "PURGE") {
+    res.status(400).json({ error: 'Body must include { "confirm": "PURGE" }' });
+    return;
+  }
+  try {
+    await audit(req.params.id, "admin", "purge", {});
+    const done = await purgeTenant(req.params.id);
+    res.json({ ok: done });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
 
 app.put("/admin/platform", requireAdmin, (req, res) => {

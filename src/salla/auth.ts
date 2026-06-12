@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { getSettings } from "../settings/settings.js";
+import { platformConfig } from "../platform/config.js";
 import { JsonStore } from "../store/jsonStore.js";
 
 export interface SallaTokens {
@@ -37,14 +38,19 @@ export function saveTokensFromWebhook(
   });
 }
 
-function sallaCreds() {
+export function sallaCreds(): { clientId: string; clientSecret: string; redirectUri: string } {
+  // Platform-level app credentials first (one Salla app serves all tenants —
+  // provisioned tenants have no per-tenant creds); default-tenant settings
+  // remain the fallback for dedicated deployments.
   const s = getSettings().salla;
-  if (!s.clientId || !s.clientSecret) {
+  const clientId = platformConfig.sallaClientId || s.clientId;
+  const clientSecret = platformConfig.sallaClientSecret || s.clientSecret;
+  if (!clientId || !clientSecret) {
     throw new Error(
-      "Salla app credentials are not configured. Add them in Settings on the dashboard."
+      "Salla app credentials are not configured. Set SALLA_CLIENT_ID/SECRET (SaaS) or add them in Settings (dedicated)."
     );
   }
-  return s;
+  return { clientId, clientSecret, redirectUri: s.redirectUri };
 }
 
 export function authorizeUrl(state: string): string {

@@ -120,6 +120,20 @@ async function panelView() {
       </div>
     </div>
 
+    ${o.fleet ? `
+    <div class="card">
+      <h2 style="margin-top:0">Fleet monitoring</h2>
+      <span class="badge ${Number(o.fleet.queue.queued) > 0 ? "warn" : ""}">queue: ${esc(o.fleet.queue.queued)} queued / ${esc(o.fleet.queue.running)} running</span>
+      <span class="badge ${Number(o.fleet.queue.oldest_due_min) > 30 ? "off" : ""}">oldest due: ${esc(o.fleet.queue.oldest_due_min)} min</span>
+      <span class="badge ${Number(o.fleet.queue.failed_24h) > 0 ? "off" : ""}">failed 24h: ${esc(o.fleet.queue.failed_24h)}</span>
+      <span class="badge">tokens today: ${(Number(o.fleet.tokensToday) / 1e6).toFixed(2)}M</span>
+      ${Object.entries(o.fleet.tenantsByStatus).map(([s, n]) => `<span class="badge">${esc(s)}: ${esc(n)}</span>`).join(" ")}
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Tenants</h2>
+      <div id="tenantList">…</div>
+    </div>` : ""}
+
     <div class="card">
       <h2 style="margin-top:0">Agent fleet</h2>
       <table style="width:100%;border-collapse:collapse;font-size:0.88rem">
@@ -134,6 +148,61 @@ async function panelView() {
       </table>
     </div>
   </main>`;
+
+  if (o.fleet) {
+    const list = document.getElementById("tenantList");
+    const { tenants } = await api("/admin/tenants");
+    list.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+        <tr><th style="text-align:start;padding:4px">Merchant</th><th>Status</th><th>Plan</th><th>Msgs/mo</th><th>Tokens/mo</th><th>Fails 24h</th><th>Actions</th></tr>
+        ${tenants.map((s) => `
+        <tr style="border-top:1px solid var(--line)" data-tid="${esc(s.id)}">
+          <td style="padding:4px">${esc(s.name || s.salla_merchant_id || s.id.slice(0, 8))}</td>
+          <td style="text-align:center"><span class="badge ${s.status === "locked" || s.status === "uninstalled" ? "off" : ""}">${esc(s.status)}</span></td>
+          <td style="text-align:center">
+            <select class="tPlan" style="width:auto;padding:2px 6px">${["trial", "basic", "pro", "growth", "custom"].map((p) =>
+              `<option value="${p}" ${s.plan === p ? "selected" : ""}>${p}</option>`).join("")}</select>
+          </td>
+          <td style="text-align:center">${esc(s.msgs_month)}</td>
+          <td style="text-align:center">${(Number(s.tokens_month) / 1e6).toFixed(2)}M</td>
+          <td style="text-align:center">${esc(s.failed_24h)}</td>
+          <td style="text-align:center;white-space:nowrap">
+            <button class="small ghost" data-act="lock">${s.status === "locked" ? "unlock" : "lock"}</button>
+            <button class="small ghost" data-act="imp">support</button>
+            ${s.status === "uninstalled" ? `<button class="small ghost danger" data-act="purge">purge</button>` : ""}
+          </td>
+        </tr>`).join("")}
+      </table>`;
+    list.querySelectorAll("select.tPlan").forEach((sel) => {
+      sel.onchange = async () => {
+        await api(`/admin/tenants/${sel.closest("tr").dataset.tid}`, {
+          method: "PUT", body: JSON.stringify({ plan: sel.value }),
+        });
+        panelView();
+      };
+    });
+    list.querySelectorAll("button[data-act]").forEach((btn) => {
+      btn.onclick = async () => {
+        const tid = btn.closest("tr").dataset.tid;
+        if (btn.dataset.act === "lock") {
+          const row = tenants.find((x) => x.id === tid);
+          await api(`/admin/tenants/${tid}`, {
+            method: "PUT",
+            body: JSON.stringify({ status: row.status === "locked" ? "active" : "locked" }),
+          });
+          panelView();
+        } else if (btn.dataset.act === "imp") {
+          const { token: impToken } = await api(`/admin/tenants/${tid}/impersonate`, { method: "POST" });
+          window.open(`/#token=${impToken}`, "_blank");
+        } else if (btn.dataset.act === "purge") {
+          if (prompt('Type PURGE to permanently delete this tenant and ALL its data:') === "PURGE") {
+            await api(`/admin/tenants/${tid}/purge`, { method: "POST", body: JSON.stringify({ confirm: "PURGE" }) });
+            panelView();
+          }
+        }
+      };
+    });
+  }
 
   document.getElementById("logout").onclick = async () => {
     try { await api("/admin/auth/logout", { method: "POST" }); } catch {}

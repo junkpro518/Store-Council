@@ -28,16 +28,16 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 - [x] T017 `tests/job-queue.ts`: 14 checks — 45-due/5-not-due/1-disabled exactly-once scheduling across 5 timezones, idempotent re-pass, two-worker SKIP-LOCKED contention, stale reclaim + backoff + terminal failure, and a REAL worker process executing a queued daily analysis end-to-end against the LLM mock (report + actions + follow-up jobs produced) → **SC-4** ✅
 
 ## P4 — Accounts & billing
-- [ ] T018 Accounts/sessions/roles (owner|staff) + login-with-Salla; migrate single-owner auth
+- [x] T018 `src/auth/accounts.ts`: accounts/account_stores/sessions (sha256-hashed tokens) + full login-with-Salla flow (OAuth identity exchange → user/info → merchant→tenant → session); merchant sessions resolve tenants in requireAuth; legacy owner auth kept for dedicated mode. *Note:* live Salla OAuth verified against a mock accounts service (SALLA_ACCOUNTS_BASE override) — confirm field names of /user/info on a real app at dress-rehearsal time; staff role schema is in place, invite flow deferred to roadmap
 - [x] T019 `src/billing/subscriptions.ts`: tolerant `app.subscription.*`/`app.trial.*` handlers (started/renewed/canceled/expired) writing subscriptions + stores.status + tenant-kv mirror; 7-day grace with worker-pass locking. *Notes:* exact event names must be confirmed against the configured app in the Partners portal at listing time (handlers are suffix-tolerant and log unknowns); reconciliation job deferred until a queryable Salla subscriptions API surface is confirmed
 - [x] T020 `src/billing/plans.ts` PLAN_MATRIX + gates at every surface: manager count (chat+MCP), forced model tier per plan, monthly message quota (one unit per user message regardless of tool calls), on-demand analysis cap, daily token budget (pre-call), MCP plan flag (403), impact plan flag (worker skip) — QuotaError degrades to friendly bilingual text
 - [x] T021 Metering inside openRouterChat (the single LLM path): per-call token rows (kind = ALS work context: daily/impact/curator/chat_llm/mcp_llm) + per-message counter rows → **SC-6** ✅
-- [ ] T022 UI: login-with-Salla, plan & usage card, locked/win-back screen; remove tenant AI-key fields (platform-owned now)
+- [x] T022 UI: Sign-in-with-Salla button (SaaS), #token capture from login/embed, plan & usage card with quota bars, AI-key + Salla-credential cards hidden in SaaS mode, impersonation banner; locked state surfaces the bilingual 402 message
 - [x] T023 `tests/billing-lifecycle.ts` (17 live checks): install→trial→basic→growth→expired(grace, reports continue)→locked(402 everywhere, no scheduling)→resubscribe(restored)+quota degradation+metering → **SC-3 core** ✅ (uninstall/reinstall legs already proven in tenant-isolation; the dashboard-login leg lands with T018)
 
 ## P5 — Fleet admin & ops
-- [ ] T024 Central panel fleet view (tenant table: plan/status/usage/cost) + per-tenant drill-down (today's view)
-- [ ] T025 Impersonate-for-support with audit_log + visible banner
-- [ ] T026 Retention purge job (90d) + owner-initiated immediate deletion endpoint
-- [ ] T027 Monitoring counters (queue depth/age, failure rate, spend vs budget) surfaced in fleet view
-- [ ] T028 Run docs/saas/08 launch checklist; append results to docs/VERIFICATION.md
+- [x] T024 `/admin/tenants` + central-panel fleet table (status, plan select, monthly messages/tokens, 24h failures) with lock/unlock + plan override (audited)
+- [x] T025 Audited impersonation: short-lived `sc_imp_` session from the fleet table, red banner in the merchant dashboard, audit_log rows (migration 002)
+- [x] T026 `purgeExpiredRetention(90)` in the worker tick + admin confirm-PURGE endpoint; FK cascades verified to wipe all tenant data. *Note:* owner-initiated deletion remains via support (admin purge) — self-serve button deferred to roadmap
+- [x] T027 Fleet monitoring card: queue depth/running/oldest-due-minutes, 24h failures, tenants by status, tokens today
+- [~] T028 Launch checklist is an operator procedure (real Salla app + real stores) — wired into docs/OPERATOR-CHECKLIST.md §7; engineering prerequisites all green

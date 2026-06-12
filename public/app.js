@@ -148,6 +148,14 @@ const STRINGS = {
   docContent: { ar: "المحتوى", en: "Content" },
   deleteDoc: { ar: "حذف", en: "Delete" },
   noDocs: { ar: "لا مستندات بعد.", en: "No documents yet." },
+  sallaLogin: { ar: "تسجيل الدخول عبر سلة", en: "Sign in with Salla" },
+  sallaLoginHint: { ar: "ادخل بحساب متجرك في سلة — بدون كلمة مرور إضافية.", en: "Use your Salla store account — no extra password." },
+  planCard: { ar: "باقتك واستهلاكك", en: "Your plan & usage" },
+  planMessages: { ar: "محادثات هذا الشهر", en: "Messages this month" },
+  planTokens: { ar: "استهلاك الذكاء الاصطناعي اليوم", en: "AI usage today" },
+  planOnDemand: { ar: "تحليلات يدوية هذا الشهر", en: "On-demand analyses this month" },
+  planManaged: { ar: "مفاتيح الذكاء الاصطناعي تُدار من المنصة في باقتك — لا تحتاج لإعداد شيء.", en: "AI keys are managed by the platform on your plan — nothing to configure." },
+  impersonationBanner: { ar: "⚠️ جلسة دعم فني (إدارة المنصة تتصفح بالنيابة عنك) — مسجلة في سجل التدقيق", en: "⚠️ Support session (platform admin browsing on your behalf) — recorded in the audit log" },
   embedSection: { ar: "تضمين اللوحة داخل لوحة سلة", en: "Embed inside the Salla dashboard" },
   embedHint: { ar: "ضع هذا الرابط كعنوان التطبيق (App URL) في بوابة شركاء سلة، فيفتح مجلس المتجر داخل لوحة سلة مع تسجيل دخول تلقائي. لا تشارك الرابط مع أحد — وداخل الإطار يعمل كل شيء كالمعتاد.", en: "Set this URL as the App URL in the Salla Partners portal — Store Council then opens inside the Salla dashboard with automatic login. Keep the link private; everything works normally inside the frame." },
   embedRotate: { ar: "توليد رابط جديد", en: "Rotate link" },
@@ -292,7 +300,9 @@ function shell(activeView, contentHtml) {
     ["managers", t("managers")],
     ["settings", t("settings")],
   ];
+  const impersonated = state.status?.tenant?.impersonated;
   $app.innerHTML = `
+  ${impersonated ? `<div style="background:var(--danger);color:#fff;text-align:center;padding:6px;font-size:0.85rem">${t("impersonationBanner")}</div>` : ""}
   <div class="layout">
     <nav class="sidebar">
       <div class="brand">${t("appName")}<small>${t("tagline")}</small></div>
@@ -326,6 +336,10 @@ function authView(isSetup) {
     <div class="card auth-card">
       <h1>${t("appName")}</h1>
       <p class="sub">${isSetup ? t("setupHint") : t("tagline")}</p>
+      ${state.status && state.status.saas ? `
+        <a class="btn" style="display:block;text-align:center;margin-bottom:6px" href="/auth/salla/login">${t("sallaLogin")}</a>
+        <p class="sub" style="text-align:center">${t("sallaLoginHint")}</p>
+        <hr style="border:none;border-top:1px solid var(--line);margin:14px 0" />` : ""}
       ${isSetup ? `<h2 style="text-align:center">${t("setupTitle")}</h2>` : ""}
       <label>${t("password")}</label>
       <input type="password" id="pw" autofocus />
@@ -916,8 +930,32 @@ async function settingsView() {
   try { summary = await api("/store/summary"); } catch {}
   const webhookUrl = `${location.origin}/webhooks/salla`;
 
+  const saas = Boolean(status.saas);
+  let usageHtml = "";
+  if (saas) {
+    try {
+      const u = await api("/billing/usage");
+      const bar = (used, max) => {
+        const pct = Math.min(100, Math.round((used / Math.max(max, 1)) * 100));
+        return `<div style="background:var(--line);border-radius:6px;height:8px;margin:4px 0 10px"><div style="width:${pct}%;height:8px;border-radius:6px;background:${pct >= 90 ? "var(--danger)" : "var(--accent)"}"></div></div>`;
+      };
+      usageHtml = `
+      <div class="card">
+        <h2 style="margin-top:0">${t("planCard")} <span class="badge">${esc(u.plan)}</span></h2>
+        <label style="margin-top:6px">${t("planMessages")}: ${u.usage.messagesThisMonth} / ${u.limits.chatPerMonth}</label>
+        ${bar(u.usage.messagesThisMonth, u.limits.chatPerMonth)}
+        <label>${t("planOnDemand")}: ${u.usage.onDemandThisMonth} / ${u.limits.onDemandPerMonth}</label>
+        ${bar(u.usage.onDemandThisMonth, u.limits.onDemandPerMonth)}
+        <label>${t("planTokens")}: ${(u.usage.tokensToday / 1000).toFixed(0)}k / ${(u.limits.tokensPerDay / 1000000).toFixed(1)}M</label>
+        ${bar(u.usage.tokensToday, u.limits.tokensPerDay)}
+        <p class="sub">${t("planManaged")}</p>
+      </div>`;
+    } catch { usageHtml = ""; }
+  }
+
   body.innerHTML = `
-  <div class="card">
+  ${usageHtml}
+  <div class="card" ${saas ? "hidden" : ""}>
     <h2 style="margin-top:0">${t("aiSettings")}</h2>
     <p class="sub">${t("openRouterOnly")}</p>
     <label>${t("openRouterKey")} <span class="hint">— ${t("openRouterKeyHint")}</span></label>
@@ -973,7 +1011,7 @@ async function settingsView() {
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" ${saas ? "hidden" : ""}>
     <h2 style="margin-top:0">${t("sallaSection")}
       <span class="badge ${status.storeConnected ? "" : "off"}">${status.storeConnected ? t("connected") : t("notConnected")}</span>
       ${summary.connected && summary.mode ? `<span class="badge">${t("connectedVia")}: ${summary.mode === "easy" ? t("viaAppStore") : t("viaOauth")}</span>` : ""}
@@ -1137,6 +1175,13 @@ async function settingsView() {
 
 async function route() {
   setLangAttrs();
+  // Capture a session token delivered by /embed or login-with-Salla.
+  const tokenMatch = location.hash.match(/^#token=([A-Za-z0-9_]+)/);
+  if (tokenMatch) {
+    state.token = tokenMatch[1];
+    localStorage.setItem("sc_token", state.token);
+    location.hash = "#/dashboard";
+  }
   let status;
   try {
     status = await fetch("/auth/status", {

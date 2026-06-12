@@ -128,6 +128,25 @@ export async function lockExpiredGraces(): Promise<number> {
   return rows.length;
 }
 
+/** Central-panel override of a tenant's plan/status (audited by the caller). */
+export async function adminSetTenant(
+  storeId: string,
+  patch: { plan?: string; status?: TenantStatus }
+): Promise<void> {
+  if (patch.status) {
+    await pool().query("update stores set status = $2 where id = $1", [storeId, patch.status]);
+  }
+  if (patch.plan) {
+    await pool().query(
+      `insert into subscriptions (store_id, plan, status) values ($1, $2, 'active')
+       on conflict (store_id) do update set plan = excluded.plan`,
+      [storeId, patch.plan]
+    );
+  }
+  const { rows } = await pool().query("select status from stores where id = $1", [storeId]);
+  await syncTenantKv(storeId, patch.plan ?? null, (rows[0]?.status as TenantStatus) ?? "active");
+}
+
 /** Tenant status from the SQL source of truth (boundaries that can await). */
 export async function tenantStatus(storeId: string): Promise<TenantStatus> {
   const { rows } = await pool().query("select status from stores where id = $1", [storeId]);

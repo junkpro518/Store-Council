@@ -85,6 +85,23 @@ export async function markReinstalled(storeId: string): Promise<void> {
   );
 }
 
+/** Purge tenants whose 90-day post-uninstall retention has elapsed (T026). */
+export async function purgeExpiredRetention(days = 90): Promise<number> {
+  const { rows } = await pool().query(
+    `delete from stores
+     where status = 'uninstalled' and uninstalled_at < now() - ($1 || ' days')::interval
+     returning id`,
+    [String(days)]
+  );
+  return rows.length; // FK cascades wipe kv, jobs, tokens, ledger, subscriptions
+}
+
+/** Hard-delete one tenant now (operator-confirmed; audited by the caller). */
+export async function purgeTenant(storeId: string): Promise<boolean> {
+  const { rows } = await pool().query("delete from stores where id = $1 returning id", [storeId]);
+  return rows.length > 0;
+}
+
 // ---------- Per-tenant integration tokens (hashed at rest) ----------
 
 function hashToken(token: string): string {

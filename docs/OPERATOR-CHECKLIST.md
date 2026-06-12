@@ -2,7 +2,7 @@
 
 > **Living document.** Every procedure YOU (the platform owner) must perform — one-time, before release, after every update, and on a recurring schedule. Each AI/developer session that changes the project MUST update this file (add new procedures, retire obsolete ones, bump the date below).
 >
-> **Last updated: 2026-06-12** (after SaaS Phase P4 core — billing, plans, quotas, metering)
+> **Last updated: 2026-06-12** (after SaaS P4+P5 complete — accounts, fleet admin, retention)
 
 ---
 
@@ -56,6 +56,8 @@ npm run build && node dist/server.js                  # boots; Ctrl+C exits clea
 DATABASE_URL=... npx tsx tests/pg-parity.ts           # storage parity
 DATABASE_URL=... npx tsx tests/tenant-isolation.ts    # SC-1: tenants never cross
 DATABASE_URL=... npx tsx tests/job-queue.ts           # SC-4: scheduling/worker
+DATABASE_URL=... npx tsx tests/billing-lifecycle.ts   # SC-3/SC-6: subscriptions, quotas, metering
+DATABASE_URL=... npx tsx tests/accounts-fleet.ts      # login-with-Salla, fleet admin, retention
 ```
 
 Then: deploy → open the dashboard → *System check* green → send one chat message.
@@ -85,6 +87,6 @@ Then: deploy → open the dashboard → *System check* green → send one chat m
 ## 7. Pending procedures (added as phases land — keep in sync with specs/004 tasks.md)
 
 - ☐ **P4 billing (now live):** at listing time, confirm the subscription event names Salla actually sends for your app configuration (handlers tolerate suffix variants and log unknowns — check the webhook log after configuring plans); walk subscribe → expire → reactivate on a test store; spot-audit `usage_ledger` token sums vs the OpenRouter dashboard monthly.
-- ☐ **P4 remaining (accounts):** login-with-Salla check + plan/usage dashboard card — after T018/T022 land.
-- ☐ **P5 (fleet admin):** impersonation audit-log review procedure; retention purge verification (90-day); fleet dashboard daily glance replaces per-tenant checks.
+- ☐ **Accounts (now live):** at dress-rehearsal, click "تسجيل الدخول عبر سلة" with a real merchant account and confirm it lands in the right tenant (the /user/info field mapping is the one thing mocked in tests). SaaS env now also requires `SALLA_CLIENT_ID`/`SALLA_CLIENT_SECRET`.
+- ☐ **Fleet ops (now live):** daily glance = central panel Fleet monitoring card (queue, failures, tenants by status, tokens). Use impersonation ("support") instead of asking merchants for screenshots — every use is audit-logged; review `select * from audit_log order by id desc limit 50` monthly. Purge is permanent — only for uninstalled tenants past retention or written deletion requests.
 - ☐ **Launch checklist** (`docs/saas/08-rollout.md`) before SaaS GA.

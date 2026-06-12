@@ -6,7 +6,7 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   dataDir: process.env.DATA_DIR ?? "./data",
   salla: {
-    authBase: "https://accounts.salla.sa/oauth2",
+    authBase: process.env.SALLA_ACCOUNTS_BASE ?? "https://accounts.salla.sa/oauth2",
     apiBase: "https://api.salla.dev/admin/v2",
   },
 };
