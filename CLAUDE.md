@@ -95,9 +95,18 @@ There is no automated CI yet, so verification is manual and mandatory:
 npm run typecheck        # tsc --noEmit — must be clean
 npm run build            # tsc — must succeed
 node --check public/app.js && node --check public/admin.js
+npx tsx tests/e2e-mock-openrouter.ts      # agent stack against the LLM mock
+# When STORAGE=postgres paths are touched (needs a migrated dev Postgres):
+#   npx tsx tests/pg-parity.ts && npx tsx tests/tenant-isolation.ts && npx tsx tests/job-queue.ts
 ```
 
 Then a runtime smoke test against a throwaway `DATA_DIR`: boot `node dist/server.js`, exercise the changed endpoints with `curl`, and confirm real behavior (not just 200s). For agent/LLM-dependent paths that need a live OpenRouter key, state explicitly that they were verified structurally but need a keyed run — never imply you tested a live LLM call you couldn't make. Delete test `data/` before committing.
+
+**Keep the living docs in sync — part of "done" for every change:**
+- `docs/OPERATOR-CHECKLIST.md` — the platform owner's procedures. Add/retire procedures your change implies and bump its "Last updated" date.
+- `docs/VERIFICATION.md` — append what you verified and how.
+- `docs/API.md` — any route you add/change.
+- `specs/004-saas-conversion/tasks.md` — check off completed tasks (with amendment notes when scope shifts).
 
 Commit messages: describe what changed and why; end with the session link line the harness expects. Develop on the designated branch; never push to a different branch without explicit permission.
 

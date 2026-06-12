@@ -18,6 +18,7 @@ Everything is controlled from a built-in, Arabic-first **web dashboard** — the
 | [docs/STRATEGY.md](docs/STRATEGY.md) | Competitive strategy vs. native AI-chat integrations |
 | [docs/saas/](docs/saas/README.md) | Complete blueprint for converting to a multi-tenant subscription SaaS (conversion in progress: `specs/004-saas-conversion/`) |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | The full experimentation & verification record — what was tested, how, and what remains |
+| [docs/OPERATOR-CHECKLIST.md](docs/OPERATOR-CHECKLIST.md) | Living checklist of every procedure the platform owner performs (setup, release gates, recurring ops, incidents) |
 | [docs/listing/app-store-assets.md](docs/listing/app-store-assets.md) | Salla App Store listing package: Arabic copy, screenshot plan, video script, plans |
 
 ---

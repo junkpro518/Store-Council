@@ -22,10 +22,10 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 - [x] T013 `tests/tenant-isolation.ts`: 15 live checks against the production server — routing/provisioning, per-tenant Salla tokens, event feeds, reports+memory via dashboard and MCP, token-scope boundaries, uninstall isolation → **SC-1** ✅ (jobs surface joins the test in P3)
 
 ## P3 — Jobs & worker
-- [ ] T014 Queue module (enqueue/claim SKIP LOCKED/complete/retry-backoff) + unique daily-job constraint
-- [ ] T015 Enqueuer (per-tenant tz + preferred hour + ±20min jitter); worker pool with global cap; remove node-cron from web process
+- [x] T014 `src/jobs/queue.ts`: enqueue (daily unique-index dedup), SKIP-LOCKED claim, complete, fail with 1/5/15-min backoff (3 attempts → terminal), stale-lock reclaim
+- [x] T015 `src/jobs/enqueuer.ts` (per-tenant timezone + cron-derived hour + deterministic ±20min jitter, idempotent) + real worker loop (reclaim → enqueue → claim → execute in tenant context, global cap, drain-on-SIGTERM); web cron disabled in postgres mode (kept for json/dedicated)
 - [ ] T016 Impact measurement + curator as queued follow-up jobs; `/reports/run` → enqueue + quota check stub
-- [ ] T017 50-tenant scheduling simulation + kill/reclaim test → **SC-4**
+- [x] T017 `tests/job-queue.ts`: 14 checks — 45-due/5-not-due/1-disabled exactly-once scheduling across 5 timezones, idempotent re-pass, two-worker SKIP-LOCKED contention, stale reclaim + backoff + terminal failure, and a REAL worker process executing a queued daily analysis end-to-end against the LLM mock (report + actions + follow-up jobs produced) → **SC-4** ✅
 
 ## P4 — Accounts & billing
 - [ ] T018 Accounts/sessions/roles (owner|staff) + login-with-Salla; migrate single-owner auth

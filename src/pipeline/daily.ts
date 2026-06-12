@@ -7,6 +7,7 @@ import { remember } from "../agents/memory.js";
 import { resetBoard, boardAsText } from "../agents/board.js";
 import { captureSnapshot } from "./metrics.js";
 import { curationDue, runCurator } from "./curator.js";
+import { platformConfig } from "../platform/config.js";
 
 export type ActionStatus = "new" | "done" | "dismissed";
 
@@ -170,20 +171,34 @@ ${findings.map(([id, text]) => `\n## Findings from ${id}\n${text}`).join("\n")}`
     report,
   ]);
 
-  // Post-run background work: impact measurements for actions implemented
-  // ~2 weeks ago, then memory curation when due.
-  void (async () => {
+  // Post-run follow-ups: impact measurements (~2-week-old done actions) and
+  // memory curation when due. In postgres mode these become queued jobs the
+  // worker executes (restart-safe, capacity-controlled); in json/dedicated
+  // mode they run in-process as before.
+  if (platformConfig.storage === "postgres") {
     try {
-      const { runImpactMeasurements } = await import("./impact.js");
-      const measured = await runImpactMeasurements();
-      if (measured > 0) console.log(`[impact] measured ${measured} implemented action(s)`);
+      const { enqueueJob } = await import("../jobs/queue.js");
+      const { currentStoreId } = await import("../tenancy/context.js");
+      const storeId = currentStoreId();
+      await enqueueJob(storeId, "impact_measurement", date);
+      if (curationDue()) await enqueueJob(storeId, "curator_run", date);
     } catch (err) {
-      console.error("[impact] loop failed:", err);
+      console.error("[daily] follow-up enqueue failed:", err);
     }
-    if (curationDue()) {
-      runCurator().catch((err) => console.error("[curator] run failed:", err));
-    }
-  })();
+  } else {
+    void (async () => {
+      try {
+        const { runImpactMeasurements } = await import("./impact.js");
+        const measured = await runImpactMeasurements();
+        if (measured > 0) console.log(`[impact] measured ${measured} implemented action(s)`);
+      } catch (err) {
+        console.error("[impact] loop failed:", err);
+      }
+      if (curationDue()) {
+        runCurator().catch((err) => console.error("[curator] run failed:", err));
+      }
+    })();
+  }
 
   return report;
 }

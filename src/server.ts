@@ -58,6 +58,8 @@ import {
   revokeIntegrationTokens,
   resolveIntegrationToken,
 } from "./tenancy/registry.js";
+import { currentStoreId } from "./tenancy/context.js";
+import { enqueueJob, activeJob } from "./jobs/queue.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -813,7 +815,11 @@ app.get("/reports/latest", requireAuth, (_req, res) => {
   res.json(latest);
 });
 
-app.get("/reports/status", requireAuth, (_req, res) => {
+app.get("/reports/status", requireAuth, async (_req, res) => {
+  if (multiTenant()) {
+    res.json({ running: await activeJob(currentStoreId(), "daily_analysis") });
+    return;
+  }
   res.json({ running: analysisRunning });
 });
 
@@ -840,9 +846,24 @@ app.post("/reports/:date/actions/:index", requireAuth, (req, res) => {
   res.json(report);
 });
 
-app.post("/reports/run", requireAuth, async (_req, res) => {
+app.post("/reports/run", requireAuth, async (req, res) => {
   if (!isConnected()) {
     res.status(409).json({ error: "Store not connected. Connect it from Settings." });
+    return;
+  }
+  if (multiTenant()) {
+    // Postgres mode: on-demand runs go through the job queue (the worker
+    // executes them); the daily unique index dedups same-day duplicates.
+    const storeId = currentStoreId();
+    if (await activeJob(storeId, "daily_analysis")) {
+      res.status(409).json({ error: "An analysis is already queued or running." });
+      return;
+    }
+    const settings = getSettings();
+    const { localClock } = await import("./jobs/enqueuer.js");
+    const { date } = localClock(settings.timezone || "Asia/Riyadh");
+    await enqueueJob(storeId, "daily_analysis", date);
+    res.json({ ok: true, message: "Analysis queued" });
     return;
   }
   if (analysisRunning) {
@@ -900,7 +921,12 @@ function applySchedule(): void {
 }
 
 await initStorage(); // postgres mode: preload + coherence listener (json: no-op)
-applySchedule();
+if (multiTenant()) {
+  // Postgres mode: the worker process owns scheduling (per-tenant enqueuer).
+  console.log("[scheduler] postgres mode — scheduling delegated to the worker process");
+} else {
+  applySchedule();
+}
 
 // Malformed JSON bodies and other route errors return JSON, never an HTML page.
 app.use(
