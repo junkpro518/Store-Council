@@ -24,7 +24,7 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 ## P3 — Jobs & worker
 - [x] T014 `src/jobs/queue.ts`: enqueue (daily unique-index dedup), SKIP-LOCKED claim, complete, fail with 1/5/15-min backoff (3 attempts → terminal), stale-lock reclaim
 - [x] T015 `src/jobs/enqueuer.ts` (per-tenant timezone + cron-derived hour + deterministic ±20min jitter, idempotent) + real worker loop (reclaim → enqueue → claim → execute in tenant context, global cap, drain-on-SIGTERM); web cron disabled in postgres mode (kept for json/dedicated)
-- [ ] T016 Impact measurement + curator as queued follow-up jobs; `/reports/run` → enqueue + quota check stub
+- [x] T016 Impact measurement + curator enqueued as follow-up jobs in postgres mode (in-process kept for json); `/reports/run` enqueues with active-job dedup + on-demand quota; `/reports/status` reads the queue
 - [x] T017 `tests/job-queue.ts`: 14 checks — 45-due/5-not-due/1-disabled exactly-once scheduling across 5 timezones, idempotent re-pass, two-worker SKIP-LOCKED contention, stale reclaim + backoff + terminal failure, and a REAL worker process executing a queued daily analysis end-to-end against the LLM mock (report + actions + follow-up jobs produced) → **SC-4** ✅
 
 ## P4 — Accounts & billing
