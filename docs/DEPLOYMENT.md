@@ -9,7 +9,7 @@
 ## Deploy
 
 ```bash
-git clone https://github.com/junkpro518/Store-Council.git && cd Store-Council
+git clone https://github.com/junkpro518/z.git && cd z
 npm ci
 npm run build
 PORT=3000 DATA_DIR=/var/lib/store-council npm start

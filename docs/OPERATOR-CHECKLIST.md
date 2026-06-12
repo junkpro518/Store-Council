@@ -12,7 +12,7 @@
 |---|---|---|---|
 | 1.1 | Run the live OpenRouter check (the only layer untestable from the dev sandbox) | `OPENROUTER_API_KEY=sk-or-... npm run verify:openrouter` on any machine with internet (<$0.05) | ☐ |
 | 1.2 | Rotate the OpenRouter key that was shared in chat | openrouter.ai/keys → revoke + create new | ☐ |
-| 1.3 | Rename the GitHub repository | ✅ Done — `https://github.com/junkpro518/Store-Council` (old clones auto-redirect) | ☑ |
+| 1.3 | (Optional) Rename the GitHub repository | Owner's choice — currently `https://github.com/junkpro518/z`; renaming is one click in repo Settings and GitHub auto-redirects old clones | ☐ |
 | 1.4 | Fill placeholders in the privacy page | Edit `public/privacy.html`: company name, CR number, host country, support email/WhatsApp | ☐ |
 | 1.5 | Fill placeholders in the listing assets | `docs/listing/app-store-assets.md`: same values + final prices | ☐ |
 | 1.6 | Create the Salla Partners app | salla.partners → new app → read-only scopes; record Client ID/Secret + webhook secret | ☐ |
