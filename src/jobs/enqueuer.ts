@@ -61,8 +61,10 @@ export interface EnqueueResult {
 /** One enqueuer pass over all active tenants. Idempotent. */
 export async function enqueueDueDailyJobs(at: Date = new Date()): Promise<EnqueueResult> {
   const pool = getPgPool() as PoolLike;
+  // past_due keeps receiving reports during the grace window (docs/saas/04);
+  // locked and uninstalled tenants get nothing.
   const { rows: stores } = await pool.query(
-    "select id from stores where status in ('trial', 'active')"
+    "select id from stores where status in ('trial', 'active', 'past_due')"
   );
   if (stores.length === 0) return { considered: 0, enqueued: 0 };
 

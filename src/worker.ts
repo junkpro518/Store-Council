@@ -14,6 +14,8 @@ import { initStorage, flushStorage, loadTenant } from "./store/jsonStore.js";
 import { runWithTenant } from "./tenancy/context.js";
 import { claimJobs, completeJob, failJob, reclaimStale, Job } from "./jobs/queue.js";
 import { enqueueDueDailyJobs } from "./jobs/enqueuer.js";
+import { lockExpiredGraces } from "./billing/subscriptions.js";
+import { runWithUsageKind } from "./billing/usage.js";
 
 console.log(
   `[worker] starting — storage=${platformConfig.storage}, concurrency=${platformConfig.worker.globalConcurrency}, tick=${platformConfig.worker.tickMs}ms`
@@ -40,11 +42,16 @@ async function executeJob(job: Job): Promise<void> {
     switch (job.type) {
       case "daily_analysis": {
         const { runDailyAnalysis } = await import("./pipeline/daily.js");
-        const report = await runDailyAnalysis();
+        const report = await runWithUsageKind("daily_analysis", () => runDailyAnalysis());
         console.log(`[worker] daily ${report.date} done for store ${job.store_id.slice(0, 8)}`);
         break;
       }
       case "impact_measurement": {
+        const { currentPlan } = await import("./billing/usage.js");
+        if (!currentPlan().impactEnabled) {
+          console.log(`[worker] impact measurement skipped (plan) for ${job.store_id.slice(0, 8)}`);
+          break;
+        }
         const { runImpactMeasurements } = await import("./pipeline/impact.js");
         const n = await runImpactMeasurements();
         if (n > 0) console.log(`[worker] measured ${n} action(s) for ${job.store_id.slice(0, 8)}`);
@@ -63,6 +70,9 @@ async function tick(): Promise<void> {
   try {
     const reclaimed = await reclaimStale(30);
     if (reclaimed > 0) console.log(`[worker] reclaimed ${reclaimed} stale job(s)`);
+
+    const locked = await lockExpiredGraces();
+    if (locked > 0) console.log(`[worker] locked ${locked} tenant(s) past grace`);
 
     const { enqueued } = await enqueueDueDailyJobs();
     if (enqueued > 0) console.log(`[worker] enqueued ${enqueued} daily analysis job(s)`);

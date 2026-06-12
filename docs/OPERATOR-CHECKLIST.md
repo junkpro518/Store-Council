@@ -2,7 +2,7 @@
 
 > **Living document.** Every procedure YOU (the platform owner) must perform — one-time, before release, after every update, and on a recurring schedule. Each AI/developer session that changes the project MUST update this file (add new procedures, retire obsolete ones, bump the date below).
 >
-> **Last updated: 2026-06-12** (after SaaS Phase P3 — job queue & worker)
+> **Last updated: 2026-06-12** (after SaaS Phase P4 core — billing, plans, quotas, metering)
 
 ---
 
@@ -84,6 +84,7 @@ Then: deploy → open the dashboard → *System check* green → send one chat m
 
 ## 7. Pending procedures (added as phases land — keep in sync with specs/004 tasks.md)
 
-- ☐ **P4 (accounts & billing):** subscription lifecycle walk on a test store (subscribe → renew → cancel → expire → reactivate); login-with-Salla check; quota-exhaustion behavior check; usage-ledger spot-audit vs OpenRouter invoice.
+- ☐ **P4 billing (now live):** at listing time, confirm the subscription event names Salla actually sends for your app configuration (handlers tolerate suffix variants and log unknowns — check the webhook log after configuring plans); walk subscribe → expire → reactivate on a test store; spot-audit `usage_ledger` token sums vs the OpenRouter dashboard monthly.
+- ☐ **P4 remaining (accounts):** login-with-Salla check + plan/usage dashboard card — after T018/T022 land.
 - ☐ **P5 (fleet admin):** impersonation audit-log review procedure; retention purge verification (90-day); fleet dashboard daily glance replaces per-tenant checks.
 - ☐ **Launch checklist** (`docs/saas/08-rollout.md`) before SaaS GA.

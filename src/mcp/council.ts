@@ -9,6 +9,13 @@ import {
   achievements,
 } from "../pipeline/daily.js";
 import { metricsHistory } from "../pipeline/metrics.js";
+import {
+  QuotaError,
+  assertMessageQuota,
+  planManagerGate,
+  recordMessage,
+  runWithUsageKind,
+} from "../billing/usage.js";
 
 /**
  * MCP server exposing the Store Council to external AI clients
@@ -58,7 +65,19 @@ export function buildCouncilMcpServer(): McpServer {
       const agent = effectiveAgent(manager_id);
       if (!agent) return textResult(`No manager "${manager_id}". Use list_managers.`);
       if (!agent.enabled) return textResult(`${agent.name} is disabled by the store owner.`);
-      return textResult(await runAgent(manager_id, question, 0, [], { forceReadOnly: true }));
+      try {
+        await planManagerGate(manager_id);
+        await assertMessageQuota();
+        await recordMessage("mcp");
+        return textResult(
+          await runWithUsageKind("mcp_llm", () =>
+            runAgent(manager_id, question, 0, [], { forceReadOnly: true })
+          )
+        );
+      } catch (err) {
+        if (err instanceof QuotaError) return textResult(err.message);
+        throw err;
+      }
     }
   );
 

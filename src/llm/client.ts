@@ -1,4 +1,10 @@
 import { openRouterKey, getSettings } from "../settings/settings.js";
+import {
+  assertTokenBudget,
+  recordLlmUsage,
+  currentPlan,
+  metering,
+} from "../billing/usage.js";
 
 /**
  * LLM access — the platform routes ALL transactions through OpenRouter
@@ -20,8 +26,18 @@ export interface OpenRouterMessage {
   tool_call_id?: string;
 }
 
+/** Effective model: the plan tier can force one (SaaS); else tenant settings. */
+export function effectiveModel(): string {
+  if (metering()) {
+    const tier = currentPlan().model;
+    if (tier) return tier;
+  }
+  return getSettings().openRouter.model;
+}
+
 export async function openRouterChat(body: Record<string, unknown>): Promise<{
   choices?: { message?: OpenRouterMessage }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 }> {
   const apiKey = openRouterKey();
   if (!apiKey) {
@@ -29,6 +45,9 @@ export async function openRouterChat(body: Record<string, unknown>): Promise<{
       "No OpenRouter API key configured. Add it in Settings on the dashboard."
     );
   }
+  // Plan gate: daily token budget (SaaS mode; QuotaError degrades gracefully).
+  await assertTokenBudget();
+  const model = effectiveModel();
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: "POST",
@@ -37,7 +56,7 @@ export async function openRouterChat(body: Record<string, unknown>): Promise<{
         "Content-Type": "application/json",
         "X-Title": "Store Council",
       },
-      body: JSON.stringify({ model: getSettings().openRouter.model, ...body }),
+      body: JSON.stringify({ model, ...body }),
     });
     // Transient failures (rate limit / upstream) get bounded retries.
     if ((res.status === 429 || res.status >= 500) && attempt < 2) {
@@ -47,7 +66,12 @@ export async function openRouterChat(body: Record<string, unknown>): Promise<{
     if (!res.ok) {
       throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 500)}`);
     }
-    return (await res.json()) as { choices?: { message?: OpenRouterMessage }[] };
+    const data = (await res.json()) as {
+      choices?: { message?: OpenRouterMessage }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    recordLlmUsage(model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+    return data;
   }
 }
 

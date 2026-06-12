@@ -29,11 +29,11 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 
 ## P4 — Accounts & billing
 - [ ] T018 Accounts/sessions/roles (owner|staff) + login-with-Salla; migrate single-owner auth
-- [ ] T019 Verify current Salla subscription event names; implement `app.subscription.*` handlers + `subscriptions` table + reconciliation job
-- [ ] T020 PLAN_MATRIX + gating middleware (managers count, model tier, analyses/chat quotas, MCP/impact flags) with graceful degradation
-- [ ] T021 Usage-metering wrapper on both LLM paths → usage_ledger → **SC-6**
+- [x] T019 `src/billing/subscriptions.ts`: tolerant `app.subscription.*`/`app.trial.*` handlers (started/renewed/canceled/expired) writing subscriptions + stores.status + tenant-kv mirror; 7-day grace with worker-pass locking. *Notes:* exact event names must be confirmed against the configured app in the Partners portal at listing time (handlers are suffix-tolerant and log unknowns); reconciliation job deferred until a queryable Salla subscriptions API surface is confirmed
+- [x] T020 `src/billing/plans.ts` PLAN_MATRIX + gates at every surface: manager count (chat+MCP), forced model tier per plan, monthly message quota (one unit per user message regardless of tool calls), on-demand analysis cap, daily token budget (pre-call), MCP plan flag (403), impact plan flag (worker skip) — QuotaError degrades to friendly bilingual text
+- [x] T021 Metering inside openRouterChat (the single LLM path): per-call token rows (kind = ALS work context: daily/impact/curator/chat_llm/mcp_llm) + per-message counter rows → **SC-6** ✅
 - [ ] T022 UI: login-with-Salla, plan & usage card, locked/win-back screen; remove tenant AI-key fields (platform-owned now)
-- [ ] T023 Lifecycle walk test (install→trial→subscribe→past_due→locked→reactivate→uninstall→reinstall) → **SC-3**
+- [x] T023 `tests/billing-lifecycle.ts` (17 live checks): install→trial→basic→growth→expired(grace, reports continue)→locked(402 everywhere, no scheduling)→resubscribe(restored)+quota degradation+metering → **SC-3 core** ✅ (uninstall/reinstall legs already proven in tenant-isolation; the dashboard-login leg lands with T018)
 
 ## P5 — Fleet admin & ops
 - [ ] T024 Central panel fleet view (tenant table: plan/status/usage/cost) + per-tenant drill-down (today's view)

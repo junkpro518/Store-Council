@@ -60,6 +60,16 @@ import {
 } from "./tenancy/registry.js";
 import { currentStoreId } from "./tenancy/context.js";
 import { enqueueJob, activeJob } from "./jobs/queue.js";
+import { handleSubscriptionEvent } from "./billing/subscriptions.js";
+import {
+  QuotaError,
+  assertMessageQuota,
+  planManagerGate,
+  recordMessage,
+  runWithUsageKind,
+  currentPlan,
+  onDemandRunsThisMonth,
+} from "./billing/usage.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -314,7 +324,10 @@ app.post("/webhooks/salla", async (req, res) => {
         await loadTenant(storeId);
       }
     }
-    const action = runWithTenant(storeId, () => handleWebhook(body, raw));
+    let action = runWithTenant(storeId, () => handleWebhook(body, raw));
+    if (multiTenant() && /^app\.(subscription|trial)\./.test(String(body.event ?? ""))) {
+      action = await handleSubscriptionEvent(storeId, String(body.event), body.data ?? {});
+    }
     if (multiTenant() && body.event === "app.uninstalled" && storeId) {
       await markUninstalled(storeId);
       await revokeIntegrationTokens(storeId);
@@ -523,11 +536,18 @@ app.post("/mcp", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (storeId === DEFAULT_STORE_ID && tenantLocked()) {
-    res.status(402).json({ error: "Service suspended", locked: true });
-    return;
-  }
   await runWithTenant(storeId, async () => {
+    // Tenant-state + plan gates (kv mirrored by the billing handlers).
+    if (tenantLocked()) {
+      res.status(402).json({ error: "Service suspended", locked: true });
+      return;
+    }
+    if (multiTenant() && !currentPlan().mcpEnabled) {
+      res.status(403).json({
+        error: "MCP access is not included in this plan — upgrade to Growth. / ربط Claude/ChatGPT غير متاح في هذه الباقة — قم بالترقية لباقة النمو.",
+      });
+      return;
+    }
     try {
       // Stateless mode: a fresh server+transport per request.
       const mcp = buildCouncilMcpServer();
@@ -772,11 +792,21 @@ app.post("/agents/:id/chat", requireAuth, async (req, res) => {
     return;
   }
   try {
+    // Plan gates (SaaS mode; no-ops in dedicated mode).
+    await planManagerGate(agent.id);
+    await assertMessageQuota();
+    await recordMessage("chat");
     const history = getHistory(agent.id);
-    const reply = await runAgent(agent.id, message, 0, history);
+    const reply = await runWithUsageKind("chat_llm", () =>
+      runAgent(agent.id, message, 0, history)
+    );
     appendExchange(agent.id, message, reply);
     res.json({ agent: agent.id, reply });
   } catch (err) {
+    if (err instanceof QuotaError) {
+      res.status(429).json({ error: err.message, quota: true });
+      return;
+    }
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -859,10 +889,18 @@ app.post("/reports/run", requireAuth, async (req, res) => {
       res.status(409).json({ error: "An analysis is already queued or running." });
       return;
     }
+    const plan = currentPlan();
+    if ((await onDemandRunsThisMonth()) >= plan.onDemandPerMonth) {
+      res.status(429).json({
+        error: `وصلت لحد التحليلات اليدوية الشهري لباقتك (${plan.onDemandPerMonth}). التحليل اليومي المجدول مستمر. / Monthly on-demand analysis quota reached (${plan.onDemandPerMonth}); the scheduled daily analysis continues.`,
+        quota: true,
+      });
+      return;
+    }
     const settings = getSettings();
     const { localClock } = await import("./jobs/enqueuer.js");
     const { date } = localClock(settings.timezone || "Asia/Riyadh");
-    await enqueueJob(storeId, "daily_analysis", date);
+    await enqueueJob(storeId, "daily_analysis", date, new Date(), { manual: true });
     res.json({ ok: true, message: "Analysis queued" });
     return;
   }
