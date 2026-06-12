@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getSettings } from "../settings/settings.js";
+import { platformConfig } from "../platform/config.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { saveTokensFromWebhook, disconnectStore, isConnected, connectionInfo } from "./auth.js";
 import { clearStoreInfoCache } from "./storeInfo.js";
@@ -23,7 +24,9 @@ const eventLog = new JsonStore<WebhookEvent[]>("webhook-events", []);
 const MAX_EVENTS = 200;
 
 export function verifySignature(rawBody: Buffer, signature: string | undefined): boolean {
-  const secret = getSettings().salla.webhookSecret;
+  // One Salla app serves all tenants, so the signing secret is platform-level
+  // when configured; the default tenant's settings remain the fallback.
+  const secret = platformConfig.sallaWebhookSecret || getSettings().salla.webhookSecret;
   if (!secret || !signature) return false;
   const mac = crypto.createHmac("sha256", secret).update(rawBody).digest();
   const provided = signature.trim();

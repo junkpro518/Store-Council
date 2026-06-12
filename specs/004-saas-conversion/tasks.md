@@ -16,10 +16,10 @@ Status legend: [x] done · [ ] pending. Each task ends with the static gates gre
 - [x] T009 Suites green on Postgres: storage parity (incl. 50-write ordering + LISTEN/NOTIFY coherence), agent E2E identical on both backends, real-server restart persistence with zero JSON files → **SC-2** ✅
 
 ## P2 — Tenant threading
-- [ ] T010 Tenant context type + resolution middleware (`req.tenant`); thread `storeId` through runner/tools/prompts/pipeline/MCP/salla client (signature changes per docs/saas/06 step 2)
-- [ ] T011 Webhook router: merchant → tenant lookup; `app.store.authorize` auto-provisions trial tenants; `app.uninstalled` sets retention countdown
-- [ ] T012 Per-tenant integration + embed tokens (hashed at rest)
-- [ ] T013 Two-tenant isolation test across dashboard/MCP/webhooks/jobs → **SC-1**
+- [x] T010 Tenant context via AsyncLocalStorage (`runWithTenant`/`currentStoreId`): boundaries are explicit, propagation through agent loops/tools/pipeline/salla client is automatic. *Amendment:* ALS instead of the docs/saas/06 signature-threading — zero churn across ~60 call sites, same guarantee (every store access carries a tenant; default = legacy store)
+- [x] T011 Webhook router: merchant → tenant lookup with first-merchant-binds-default upgrade path; authorize auto-provisions 7-day trials (+reinstall restore); uninstall sets retention countdown + revokes tokens; unknown-merchant events ignored loudly; platform-level webhook secret (SALLA_WEBHOOK_SECRET) with default-tenant fallback
+- [x] T012 Per-tenant integration tokens in the `integration_tokens` table, sha256-hashed at rest, resolved on /mcp, revoked on uninstall. *Amendment:* embed keys stay deployment-level until P4 — owner sessions are deployment-level until accounts exist, so a per-tenant embed key minting a global session would itself be a cross-tenant hole
+- [x] T013 `tests/tenant-isolation.ts`: 15 live checks against the production server — routing/provisioning, per-tenant Salla tokens, event feeds, reports+memory via dashboard and MCP, token-scope boundaries, uninstall isolation → **SC-1** ✅ (jobs surface joins the test in P3)
 
 ## P3 — Jobs & worker
 - [ ] T014 Queue module (enqueue/claim SKIP LOCKED/complete/retry-backoff) + unique daily-job constraint

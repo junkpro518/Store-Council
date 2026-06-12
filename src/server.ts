@@ -47,7 +47,17 @@ import { buildCouncilMcpServer } from "./mcp/council.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { aiConfigured } from "./settings/settings.js";
 import { sallaGet } from "./salla/client.js";
-import { initStorage, flushStorage } from "./store/jsonStore.js";
+import { initStorage, flushStorage, loadTenant, DEFAULT_STORE_ID } from "./store/jsonStore.js";
+import { runWithTenant } from "./tenancy/context.js";
+import {
+  multiTenant,
+  resolveOrProvision,
+  findStoreByMerchant,
+  markUninstalled,
+  markReinstalled,
+  revokeIntegrationTokens,
+  resolveIntegrationToken,
+} from "./tenancy/registry.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -273,7 +283,7 @@ app.post("/salla/disconnect", requireAuth, (_req, res) => {
 
 // ---------- Salla webhooks (required for App Store listing) ----------
 
-app.post("/webhooks/salla", (req, res) => {
+app.post("/webhooks/salla", async (req, res) => {
   const raw = (req as express.Request & { rawBody?: Buffer }).rawBody;
   const signature = req.header("x-salla-signature");
   if (!raw || !verifySignature(raw, signature)) {
@@ -281,8 +291,33 @@ app.post("/webhooks/salla", (req, res) => {
     return;
   }
   try {
-    const action = handleWebhook(req.body ?? {}, raw);
-    console.log(`[webhook] ${req.body?.event}: ${action}`);
+    const body = req.body ?? {};
+    const merchant = typeof body.merchant === "number" ? body.merchant : undefined;
+    let storeId = DEFAULT_STORE_ID;
+    if (multiTenant() && merchant !== undefined) {
+      // Multi-tenant routing: merchant → tenant (provisioning new trials
+      // on app.store.authorize; unknown merchants on other events are
+      // logged against the platform, never another tenant).
+      if (body.event === "app.store.authorize") {
+        storeId = await resolveOrProvision(merchant);
+        await markReinstalled(storeId);
+      } else {
+        const found = await findStoreByMerchant(merchant);
+        if (!found) {
+          console.warn(`[webhook] ${body.event} for unknown merchant ${merchant} — ignored`);
+          res.json({ ok: true });
+          return;
+        }
+        storeId = found;
+        await loadTenant(storeId);
+      }
+    }
+    const action = runWithTenant(storeId, () => handleWebhook(body, raw));
+    if (multiTenant() && body.event === "app.uninstalled" && storeId) {
+      await markUninstalled(storeId);
+      await revokeIntegrationTokens(storeId);
+    }
+    console.log(`[webhook] ${body.event} (store ${storeId.slice(0, 8)}): ${action}`);
     res.json({ ok: true });
   } catch (err) {
     console.error("[webhook] handler error:", err);
@@ -466,23 +501,48 @@ app.get("/achievements", requireAuth, (_req, res) => {
 
 // ---------- MCP server (talk to the council from Claude/ChatGPT) ----------
 
-app.post("/mcp", requireAuth, async (req, res) => {
-  try {
-    // Stateless mode: a fresh server+transport per request.
-    const mcp = buildCouncilMcpServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-    res.on("close", () => {
-      transport.close();
-      mcp.close();
-    });
-    await mcp.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("[mcp] request failed:", err);
-    if (!res.headersSent) res.status(500).json({ error: "MCP request failed" });
+app.post("/mcp", async (req, res) => {
+  // Tenant resolution: owner session / legacy deployment token → default
+  // tenant; in postgres mode a per-tenant integration token (hashed at rest)
+  // resolves to ITS tenant. The whole request — including agent runs the
+  // tools trigger — executes inside that tenant's context.
+  const presented = bearer(req);
+  let storeId: string | null = null;
+  if (owner.verifyToken(presented)) {
+    storeId = DEFAULT_STORE_ID;
+  } else if (multiTenant() && presented) {
+    try {
+      storeId = await resolveIntegrationToken(presented);
+    } catch (err) {
+      console.error("[mcp] token resolution failed:", err);
+    }
   }
+  if (!storeId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  if (storeId === DEFAULT_STORE_ID && tenantLocked()) {
+    res.status(402).json({ error: "Service suspended", locked: true });
+    return;
+  }
+  await runWithTenant(storeId, async () => {
+    try {
+      // Stateless mode: a fresh server+transport per request.
+      const mcp = buildCouncilMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      res.on("close", () => {
+        transport.close();
+        mcp.close();
+      });
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      console.error("[mcp] request failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "MCP request failed" });
+    }
+  });
 });
 
 app.get("/mcp", (_req, res) => {

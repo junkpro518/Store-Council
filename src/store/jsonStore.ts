@@ -26,7 +26,9 @@ import { platformConfig } from "../platform/config.js";
  * cross-process KV transactions.
  */
 
-export const DEFAULT_STORE_ID = "00000000-0000-0000-0000-000000000001";
+import { currentStoreId, DEFAULT_STORE_ID } from "../tenancy/context.js";
+
+export { DEFAULT_STORE_ID }; // re-export: scripts/tests import it from here
 
 interface Backend {
   read(kind: string, storeId: string): unknown; // undefined = absent
@@ -85,6 +87,10 @@ class PgKvBackend implements Backend {
 
   private key(kind: string, storeId: string): string {
     return `${storeId}/${kind}`;
+  }
+
+  isLoaded(storeId: string): boolean {
+    return this.loaded.has(storeId);
   }
 
   async preloadStore(storeId: string): Promise<void> {
@@ -169,6 +175,23 @@ class PgKvBackend implements Backend {
 
 let active: Backend = new JsonFileBackend();
 let pgBackend: PgKvBackend | null = null;
+let pgPool: unknown = null;
+
+/** Direct pool access for modules that query real tables (registry, P3 jobs). */
+export function getPgPool(): unknown {
+  return pgPool;
+}
+
+/**
+ * Preload a tenant's KV into the cache (postgres mode; no-op for json or if
+ * already loaded). Boundaries MUST await this before entering runWithTenant
+ * for a non-default store.
+ */
+export async function loadTenant(storeId: string): Promise<void> {
+  if (!pgBackend) return;
+  if (pgBackend.isLoaded(storeId)) return;
+  await pgBackend.preloadStore(storeId);
+}
 
 /**
  * Initialize storage. No-op for the json backend; for postgres: connects,
@@ -194,6 +217,7 @@ export async function initStorage(): Promise<void> {
   await backend.preloadStore(DEFAULT_STORE_ID);
   await backend.listen();
   pgBackend = backend;
+  pgPool = pool;
   active = backend;
   console.log("[storage] postgres backend active (kv preloaded, coherence listener on)");
 }
@@ -213,16 +237,17 @@ export async function closeStorage(): Promise<void> {
 export class JsonStore<T> {
   constructor(private kind: string, private fallback: T) {}
 
-  read(storeId: string = DEFAULT_STORE_ID): T {
+  /** Defaults to the ambient tenant (runWithTenant), else the default store. */
+  read(storeId: string = currentStoreId()): T {
     const value = active.read(this.kind, storeId);
     return value === undefined ? structuredClone(this.fallback) : (value as T);
   }
 
-  write(value: T, storeId: string = DEFAULT_STORE_ID): void {
+  write(value: T, storeId: string = currentStoreId()): void {
     active.write(this.kind, storeId, value);
   }
 
-  update(fn: (current: T) => T, storeId: string = DEFAULT_STORE_ID): T {
+  update(fn: (current: T) => T, storeId: string = currentStoreId()): T {
     const next = fn(this.read(storeId));
     this.write(next, storeId);
     return next;

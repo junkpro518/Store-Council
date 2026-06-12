@@ -18,6 +18,12 @@ export const platformConfig = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   /** 32-byte hex key for encrypting tenant secrets at rest (P4). */
   encryptionKey: process.env.PLATFORM_ENCRYPTION_KEY ?? "",
+  /**
+   * Platform-level Salla webhook secret. One Salla app serves all tenants,
+   * so signature verification happens before tenant routing. Falls back to
+   * the default tenant's settings (legacy single-store behavior) when unset.
+   */
+  sallaWebhookSecret: process.env.SALLA_WEBHOOK_SECRET ?? "",
   /** Worker tuning (P3). */
   worker: {
     /** Max LLM-heavy jobs running simultaneously across all tenants. */

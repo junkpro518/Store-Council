@@ -50,6 +50,10 @@ async function main(): Promise<void> {
          on conflict (store_id, kind) do update set value = excluded.value, version = kv_state.version + 1`,
         [storeId, kind, JSON.stringify(value)]
       );
+      // Coherence contract: notify live processes so their caches refresh.
+      await client.query("select pg_notify('kv_changed', $1)", [
+        JSON.stringify({ kind, storeId, src: "importer" }),
+      ]);
       console.log(`imported ${kind} (${raw.length} bytes)`);
       imported++;
     }
